@@ -7,6 +7,7 @@ import {
   AGENT_SESSION_STATUS_FEED_RUNTIME_CAPABILITY,
   AGENT_SESSION_REPEATED_STOP_RUNTIME_CAPABILITY
 } from '../../../src/shared/protocol-version'
+import { FILES_HOST_PATH_RUNTIME_CAPABILITY } from '../../../src/shared/runtime-file-contracts'
 import { structuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
 
 describe('structuredAgentSessionHostSupport', () => {
@@ -17,7 +18,8 @@ describe('structuredAgentSessionHostSupport', () => {
       queuedMessages: false,
       queuedCommands: false,
       quietRepeatedStop: false,
-      statusFeed: false
+      statusFeed: false,
+      hostPathFiles: false
     }
     expect(structuredAgentSessionHostSupport([])).toEqual(none)
     expect(
@@ -38,5 +40,9 @@ describe('structuredAgentSessionHostSupport', () => {
     expect(
       structuredAgentSessionHostSupport([AGENT_SESSION_STATUS_FEED_RUNTIME_CAPABILITY])
     ).toEqual({ ...none, statusFeed: true })
+    expect(structuredAgentSessionHostSupport([FILES_HOST_PATH_RUNTIME_CAPABILITY])).toEqual({
+      ...none,
+      hostPathFiles: true
+    })
   })
 })
