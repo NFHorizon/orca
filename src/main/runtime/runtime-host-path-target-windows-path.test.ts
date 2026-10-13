@@ -15,7 +15,7 @@ vi.mock('node:fs/promises', () => {
 })
 vi.mock('../repo-worktrees', () => ({ listRepoWorktreeGraph: vi.fn(async () => []) }))
 
-import { nativeChatVisualsRootFor } from '../native-chat/native-chat-visuals-folder'
+import { nativeChatScratchRootFor } from '../native-chat/native-chat-scratch-folder'
 import { initOrcaProfilePaths } from '../orca-profiles/profile-storage-paths'
 import { resolveHostPathTarget } from './runtime-host-path-target'
 
@@ -33,7 +33,7 @@ const store = {
 } as unknown as Store
 
 const USER_DATA = 'C:\\Users\\me\\AppData\\Roaming\\Orca'
-const VISUALS = `${nativeChatVisualsRootFor(USER_DATA)}\\0123456789abcdef0123456789abcdef`
+const SCRATCH = `${nativeChatScratchRootFor(USER_DATA)}\\0123456789abcdef0123456789abcdef`
 
 beforeEach(() => {
   installFakeAppEnvironment({ getPath: () => USER_DATA })
@@ -59,8 +59,8 @@ describe('host paths on a Windows host', () => {
     'c:/repo/src/a.ts',
     '\\\\server\\share\\Notes Folder\\todo.md',
     '//server/share/notes folder/todo.md',
-    `${VISUALS}\\chart.html`,
-    `${VISUALS.toLowerCase().replaceAll('\\', '/')}/chart.html`
+    `${SCRATCH}\\chart.html`,
+    `${SCRATCH.toLowerCase().replaceAll('\\', '/')}/chart.html`
   ])('allows %s', async (path) => {
     expect(await outcome(path)).toBe('ok')
     expect(await outcome(path, { kind: 'user-file' })).toBe('ok')
@@ -70,7 +70,7 @@ describe('host paths on a Windows host', () => {
     'C:\\Users\\me\\notes.txt',
     `${USER_DATA}\\orca-data.json`,
     `${USER_DATA}\\floating-workspace\\untitled.md`,
-    `${VISUALS}\\..\\..\\orca-data.json`,
+    `${SCRATCH}\\..\\..\\orca-data.json`,
     '\\\\server\\share\\other\\todo.md',
     // Relative to the current drive or folder, or another system's spelling.
     'C:repo\\src\\a.ts',

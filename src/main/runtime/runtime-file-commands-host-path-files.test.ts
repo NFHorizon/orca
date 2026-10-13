@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installFakeAppEnvironment } from '../../../config/scripts/vitest-host-ports-setup'
 import { PATH_OUTSIDE_ALLOWED_DIRECTORIES } from '../../shared/local-file-access'
 import { invalidateAuthorizedRootsCache } from '../ipc/registered-worktree-roots-cache'
-import { nativeChatVisualsFolderFor } from '../native-chat/native-chat-visuals-folder'
+import {
+  legacyNativeChatVisualsRootFor,
+  nativeChatScratchFolderFor
+} from '../native-chat/native-chat-scratch-folder'
 import { initOrcaProfilePaths } from '../orca-profiles/profile-storage-paths'
 import type { Store } from '../persistence'
 import type * as RepoWorktrees from '../repo-worktrees'
@@ -23,7 +26,7 @@ vi.mock('../repo-worktrees', async () => {
 let base: string
 let project: string
 let folderWorkspace: string
-let visualsFolder: string
+let scratchFolder: string
 let floating: string
 let outside: string
 let store: Store
@@ -84,9 +87,9 @@ beforeEach(async () => {
   const userData = join(base, 'user-data')
   installFakeAppEnvironment({ getPath: () => userData })
   initOrcaProfilePaths()
-  visualsFolder = nativeChatVisualsFolderFor(userData, 'session-1')
+  scratchFolder = nativeChatScratchFolderFor(userData, 'session-1')
   floating = join(userData, 'floating-workspace')
-  for (const dir of [project, linkedWorktree, folderWorkspace, visualsFolder, floating, outside]) {
+  for (const dir of [project, linkedWorktree, folderWorkspace, scratchFolder, floating, outside]) {
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'file.md'), 'text\n')
   }
@@ -102,7 +105,7 @@ describe('host-path requests inside this host’s roots', () => {
   it.each(ACCESSES)(
     'reads, previews, chunks, stats and saves in every root (access %j)',
     async (access) => {
-      for (const dir of [project, linkedWorktree, folderWorkspace, visualsFolder]) {
+      for (const dir of [project, linkedWorktree, folderWorkspace, scratchFolder]) {
         const file = join(dir, 'file.md')
         const request = requests(file, access)
         await expect(request.read(), dir).resolves.toEqual({
@@ -126,8 +129,8 @@ describe('host-path requests inside this host’s roots', () => {
     }
   )
 
-  it('creates a new file in a chat visuals folder', async () => {
-    const file = join(visualsFolder, 'chart.html')
+  it('creates a new file in a chat scratch folder', async () => {
+    const file = join(scratchFolder, 'chart.html')
     await expect(
       commands.writeHostPathFile(
         { path: file, access: { kind: 'user-file' } },
@@ -141,14 +144,14 @@ describe('host-path requests inside this host’s roots', () => {
   })
 
   it('stats a root folder itself', async () => {
-    await expect(commands.statHostPathFile({ path: visualsFolder })).resolves.toMatchObject({
+    await expect(commands.statHostPathFile({ path: scratchFolder })).resolves.toMatchObject({
       isDirectory: true
     })
   })
 
   it('keeps the ordinary write rules: a directory is never overwritten', async () => {
     await expect(
-      commands.writeHostPathFile({ path: visualsFolder }, 'x', undefined, undefined, 'local')
+      commands.writeHostPathFile({ path: scratchFolder }, 'x', undefined, undefined, 'local')
     ).rejects.toThrow('Cannot write to a directory')
   })
 
@@ -182,19 +185,27 @@ describe('host-path requests outside this host’s roots', () => {
     await writeFile(join(base, 'user-data', 'orca-data.json'), '{}')
     await expectRefusedEverywhere(join(base, 'user-data', 'orca-data.json'))
     await expectRefusedEverywhere(join(floating, 'file.md'))
+    // The pre-rename scratch root is only swept, never served.
+    const legacyFolder = join(
+      legacyNativeChatVisualsRootFor(join(base, 'user-data')),
+      'f'.repeat(32)
+    )
+    await mkdir(legacyFolder, { recursive: true })
+    await writeFile(join(legacyFolder, 'file.md'), 'text\n')
+    await expectRefusedEverywhere(join(legacyFolder, 'file.md'))
   })
 
   it('refuses a link inside a root that leads outside', async () => {
-    await symlink(join(outside, 'file.md'), join(visualsFolder, 'escape.md'))
+    await symlink(join(outside, 'file.md'), join(scratchFolder, 'escape.md'))
     await symlink(outside, join(project, 'escape-dir'))
-    await expectRefusedEverywhere(join(visualsFolder, 'escape.md'))
+    await expectRefusedEverywhere(join(scratchFolder, 'escape.md'))
     await expectRefusedEverywhere(join(project, 'escape-dir', 'file.md'))
     await expectRefusedEverywhere(join(project, 'escape-dir', 'new.md'))
   })
 
   it('refuses `..` out of a root', async () => {
     await expectRefusedEverywhere(`${project}/../outside/file.md`)
-    await expectRefusedEverywhere(`${visualsFolder}/../../../outside/file.md`)
+    await expectRefusedEverywhere(`${scratchFolder}/../../../outside/file.md`)
   })
 
   it('refuses a relative path, even one that names a file inside a root', async () => {
@@ -204,15 +215,15 @@ describe('host-path requests outside this host’s roots', () => {
 })
 
 describe('workspace-addressed host requests keep their own roots', () => {
-  it('never reach the chat visuals folder', async () => {
+  it('never reach the chat scratch folder', async () => {
     const provider = requireRuntimeFileProvider(
       { executionHostId: 'local' },
       { requireStore: () => store }
     )
-    await expect(provider.stat(join(visualsFolder, 'file.md'))).rejects.toThrow(
+    await expect(provider.stat(join(scratchFolder, 'file.md'))).rejects.toThrow(
       PATH_OUTSIDE_ALLOWED_DIRECTORIES
     )
-    await expect(provider.writeFile(join(visualsFolder, 'file.md'), 'x')).rejects.toThrow(
+    await expect(provider.writeFile(join(scratchFolder, 'file.md'), 'x')).rejects.toThrow(
       PATH_OUTSIDE_ALLOWED_DIRECTORIES
     )
   })
