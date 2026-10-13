@@ -23,8 +23,8 @@ export function chatImageAccess(): LocalFileAccess {
 }
 
 /**
- * For an HTML visual a chat shows by itself. Main reads it only from a chat's own folder under the
- * host's chat scratch root, never from a project, and serves no operation but a read.
+ * For an HTML visual a chat shows by itself. Main reads it only from a chat folder (any chat's)
+ * under the host's chat scratch root, never from a project, and serves no operation but a read.
  */
 export function chatVisualAccess(): LocalFileAccess {
   return CHAT_VISUAL_ACCESS

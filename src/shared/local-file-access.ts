@@ -12,8 +12,8 @@ export type LocalFileAccess =
   /** A document the user opened: renaming it to any path, or adding files in its own folder. */
   | { kind: 'document-folder'; documentPath: string }
   /**
-   * An HTML visual a chat shows by itself: read only, and only a visual file directly inside one
-   * chat's folder under this host's chat scratch root; never a project file.
+   * An HTML visual a chat shows by itself: read only, and only a visual file directly inside a
+   * chat folder (any chat's) under this host's chat scratch root; never a project file.
    */
   | { kind: 'chat-visual' }
 
