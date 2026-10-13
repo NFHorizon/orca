@@ -7,7 +7,8 @@ import {
   getRemoteFileArgs,
   isAbsolutePathLike
 } from './runtime-file-routing'
-import { runtimeEnvironmentSupportsCapability } from './runtime-rpc-client'
+import { getRuntimeEnvironmentStatus, peekRuntimeEnvironmentStatus } from './runtime-rpc-client'
+import { getRuntimeEnvironmentRevision } from './runtime-environment-revision'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 
 /** The fields that name one file on its owner host; spread into any `files.*` request. */
@@ -24,12 +25,74 @@ export type RuntimeFileAddress = {
 type HostPathOwnerContext = Pick<RuntimeFileOperationArgs, 'target' | 'connectionId'> &
   Partial<Pick<RuntimeFileOperationArgs, 'worktreeId' | 'expectedExecutionHostId'>>
 
+type HostPathVerdict = { serves: boolean; checkedAt: number; revision: number | undefined }
+
+// Why: the shared status cache forgets a negative capability answer, so an older host would be
+// re-asked on every outside link, click and read; this verdict is kept for the status lifetime.
+const HOST_PATH_VERDICT_TTL_MS = 60_000
+const hostPathVerdicts = new Map<string, HostPathVerdict>()
+const hostPathProbes = new Map<string, Promise<boolean>>()
+
+function currentHostPathVerdict(environmentId: string): HostPathVerdict | undefined {
+  const verdict = hostPathVerdicts.get(environmentId)
+  if (verdict && verdict.revision === getRuntimeEnvironmentRevision(environmentId)) {
+    return verdict
+  }
+  const status = peekRuntimeEnvironmentStatus(environmentId)
+  if (!status) {
+    return undefined
+  }
+  const peeked = {
+    serves: status.capabilities?.includes(FILES_HOST_PATH_RUNTIME_CAPABILITY) === true,
+    checkedAt: Date.now(),
+    revision: getRuntimeEnvironmentRevision(environmentId)
+  }
+  hostPathVerdicts.set(environmentId, peeked)
+  return peeked
+}
+
+function probeHostPathVerdict(environmentId: string): Promise<boolean> {
+  const running = hostPathProbes.get(environmentId)
+  if (running) {
+    return running
+  }
+  const revision = getRuntimeEnvironmentRevision(environmentId)
+  const probe = getRuntimeEnvironmentStatus(environmentId, 15_000)
+    .then((status) => {
+      const serves = status.capabilities?.includes(FILES_HOST_PATH_RUNTIME_CAPABILITY) === true
+      hostPathVerdicts.set(environmentId, { serves, checkedAt: Date.now(), revision })
+      return serves
+    })
+    // Why: a host that can't answer is treated as an older one, so callers keep today's path.
+    .catch(() => false)
+    .finally(() => hostPathProbes.delete(environmentId))
+  hostPathProbes.set(environmentId, probe)
+  return probe
+}
+
+/**
+ * Whether the host already answered that it serves files by path; undefined when it never has.
+ * Never waits: a missing or stale answer is refreshed in the background.
+ */
+export function knownRuntimeEnvironmentServesFilesByPath(
+  environmentId: string
+): boolean | undefined {
+  const verdict = currentHostPathVerdict(environmentId)
+  if (!verdict || Date.now() - verdict.checkedAt >= HOST_PATH_VERDICT_TTL_MS) {
+    void probeHostPathVerdict(environmentId)
+  }
+  return verdict?.serves
+}
+
+/** Waits for the host only when it has never answered; a stale answer is used and refreshed. */
 export function runtimeEnvironmentServesFilesByPath(environmentId: string): Promise<boolean> {
-  return runtimeEnvironmentSupportsCapability(
-    environmentId,
-    FILES_HOST_PATH_RUNTIME_CAPABILITY,
-    15_000
-  )
+  const known = knownRuntimeEnvironmentServesFilesByPath(environmentId)
+  return known === undefined ? probeHostPathVerdict(environmentId) : Promise.resolve(known)
+}
+
+export function clearRuntimeHostPathVerdictsForTests(): void {
+  hostPathVerdicts.clear()
+  hostPathProbes.clear()
 }
 
 /** A runtime-owned workspace's file inside its worktree, addressed by its relative path. */

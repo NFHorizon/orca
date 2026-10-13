@@ -5,11 +5,13 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpenFile } from '@/store/slices/editor'
 import type { FileContent } from './editor-panel-content-types'
+import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
+import { PATH_OUTSIDE_ALLOWED_DIRECTORIES } from '../../../../shared/local-file-access'
 
 const mocks = vi.hoisted(() => ({
   readRuntimeFileContent: vi.fn(),
   getConnectionIdForFile: vi.fn(),
-  runtimeEnvironmentServesFilesByPath: vi.fn(),
+  knownRuntimeEnvironmentServesFilesByPath: vi.fn(),
   getState: vi.fn()
 }))
 
@@ -17,7 +19,7 @@ vi.mock('@/runtime/runtime-file-read-client', () => ({
   readRuntimeFileContent: mocks.readRuntimeFileContent
 }))
 vi.mock('@/runtime/runtime-file-address', () => ({
-  runtimeEnvironmentServesFilesByPath: mocks.runtimeEnvironmentServesFilesByPath
+  knownRuntimeEnvironmentServesFilesByPath: mocks.knownRuntimeEnvironmentServesFilesByPath
 }))
 vi.mock('@/runtime/runtime-file-watch-client', () => ({ subscribeRuntimeFileChanges: vi.fn() }))
 vi.mock('@/runtime/runtime-git-diff-client', () => ({
@@ -87,7 +89,7 @@ describe('restoring a tab for a file outside every workspace on a paired host', 
     mocks.readRuntimeFileContent.mockReset()
     mocks.getConnectionIdForFile.mockReset()
     mocks.getConnectionIdForFile.mockReturnValue(null)
-    mocks.runtimeEnvironmentServesFilesByPath.mockReset()
+    mocks.knownRuntimeEnvironmentServesFilesByPath.mockReset()
     mocks.getState.mockReturnValue({
       settings: null,
       openFiles: [],
@@ -104,7 +106,7 @@ describe('restoring a tab for a file outside every workspace on a paired host', 
   })
 
   it('reads it from its host by path with the user’s access', async () => {
-    mocks.runtimeEnvironmentServesFilesByPath.mockResolvedValue(true)
+    mocks.knownRuntimeEnvironmentServesFilesByPath.mockReturnValue(true)
     mocks.readRuntimeFileContent.mockResolvedValue({ content: '# report', isBinary: false })
 
     await act(async () => {
@@ -112,7 +114,7 @@ describe('restoring a tab for a file outside every workspace on a paired host', 
     })
 
     await vi.waitFor(() => expect(latestFileContents[HOST_FILE]?.content).toBe('# report'))
-    expect(mocks.runtimeEnvironmentServesFilesByPath).toHaveBeenCalledWith('env-1')
+    expect(mocks.knownRuntimeEnvironmentServesFilesByPath).toHaveBeenCalledWith('env-1')
     expect(mocks.readRuntimeFileContent).toHaveBeenCalledWith(
       expect.objectContaining({
         target: { kind: 'environment', environmentId: 'env-1' },
@@ -124,24 +126,63 @@ describe('restoring a tab for a file outside every workspace on a paired host', 
     )
   })
 
-  it('keeps today’s refusal on an older host, without reading anything', async () => {
-    mocks.runtimeEnvironmentServesFilesByPath.mockResolvedValue(false)
+  it('shows today’s refusal when the host does not serve the path (a restored grant tab)', async () => {
+    mocks.knownRuntimeEnvironmentServesFilesByPath.mockReturnValue(true)
+    mocks.readRuntimeFileContent.mockRejectedValue(
+      new RuntimeRpcCallError({
+        id: 'rpc',
+        ok: false,
+        error: { code: 'runtime_error', message: PATH_OUTSIDE_ALLOWED_DIRECTORIES },
+        _meta: { runtimeId: 'remote-runtime' }
+      })
+    )
+    // Grants are never persisted, so a restored grant tab comes back read-only without one.
+    const grantTabs = [
+      {
+        ...hostFileTab,
+        id: '/etc/hosts',
+        filePath: '/etc/hosts',
+        relativePath: '/etc/hosts',
+        runtimeEnvironmentId: 'env-1',
+        readOnly: true
+      }
+    ]
 
     await act(async () => {
-      root?.render(<HookProbe file={hostFileTab} openFiles={hostFileTabs} />)
+      root?.render(<HookProbe file={grantTabs[0]!} openFiles={grantTabs} />)
     })
 
     await vi.waitFor(() =>
-      expect(latestFileContents[HOST_FILE]?.loadError).toBe(
-        'External local files are not available for remote workspaces.'
-      )
+      expect(latestFileContents['/etc/hosts']).toEqual({
+        content: '',
+        isBinary: false,
+        loadError: 'External local files are not available for remote workspaces.'
+      })
     )
-    expect(mocks.readRuntimeFileContent).not.toHaveBeenCalled()
   })
+
+  // `undefined`: the host has not answered yet (unreachable, or not asked); restore never waits.
+  it.each([false, undefined])(
+    'keeps today’s refusal at once when serving by path is %s',
+    async (known) => {
+      mocks.knownRuntimeEnvironmentServesFilesByPath.mockReturnValue(known)
+
+      await act(async () => {
+        root?.render(<HookProbe file={hostFileTab} openFiles={hostFileTabs} />)
+      })
+
+      await vi.waitFor(() =>
+        expect(latestFileContents[HOST_FILE]?.loadError).toBe(
+          'External local files are not available for remote workspaces.'
+        )
+      )
+      expect(mocks.readRuntimeFileContent).not.toHaveBeenCalled()
+    }
+  )
 
   it('never asks a host that proxies an SSH workspace to read by path', async () => {
     mocks.getConnectionIdForFile.mockReturnValue('box')
-    mocks.runtimeEnvironmentServesFilesByPath.mockResolvedValue(true)
+    mocks.knownRuntimeEnvironmentServesFilesByPath.mockReturnValue(true)
 
     await act(async () => {
       root?.render(<HookProbe file={hostFileTab} openFiles={hostFileTabs} />)

@@ -16,11 +16,10 @@ import {
 } from '@/components/terminal-pane/terminal-file-link-target'
 import { getTerminalFileContext } from '@/components/terminal-pane/terminal-file-path-mapping'
 import { runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
-import { runtimeEnvironmentServesFilesByPath } from '@/runtime/runtime-file-address'
 import {
-  hostFileLinkTargetExists,
-  isHostPathOutsideWorkspace
-} from '@/components/terminal-pane/terminal-host-file-link-existence'
+  createHostPathLinkExistence,
+  type HostPathLinkExistence
+} from './native-chat-host-path-link-existence'
 
 // Why: a host that could not answer is retried a few times, then waits for the next recheck.
 export const UNVERIFIABLE_RETRY_DELAYS_MS = [2_000, 10_000, 30_000] as const
@@ -65,7 +64,8 @@ export type NativeChatFileLinkHost = FileLinkHost & {
 
 export function createNativeChatFileLinkExistence(
   host: NativeChatFileLinkHost,
-  pathExists: FileLinkPathExistence = createTerminalPathExistenceBatch()
+  pathExists: FileLinkPathExistence = createTerminalPathExistenceBatch(),
+  hostServesLinkByPath: HostPathLinkExistence = createHostPathLinkExistence()
 ): NativeChatFileLinkExistence {
   let generation = 0
   const answers = new Map<string, Answer>()
@@ -142,14 +142,10 @@ export function createNativeChatFileLinkExistence(
       ) {
         throw new Error('The workspace host changed or could not be determined')
       }
-      const environmentId = runtimeTargetEnvironmentId(target.fileContext.target)
-      if (
-        environmentId &&
-        isHostPathOutsideWorkspace(target) &&
-        (await runtimeEnvironmentServesFilesByPath(environmentId))
-      ) {
-        // Why: a path such a host serves (its chat scratch folder) is the host's, not this computer's.
-        return hostFileLinkTargetExists(target, new Map(), null)
+      // Why: a file the host serves by path (its chat scratch folder) is the host's; anything
+      // else keeps today's check, whatever the host answers.
+      if (await hostServesLinkByPath(target)) {
+        return true
       }
       return pathExists(target.fileContext, target.absolutePath, target.isRemoteRuntimePath)
     }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY,
   MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION,
@@ -15,6 +15,8 @@ import { writeRuntimeFile } from './runtime-file-mutation-client'
 import { runtimePathExists, statRuntimePath } from './runtime-file-metadata-client'
 import { readRuntimeFileRange, statRuntimeReadTarget } from './runtime-file-range-client'
 import { runtimePathsExist } from './runtime-path-existence-batch'
+import { runtimeEnvironmentSupportsCapability } from './runtime-rpc-client'
+import { runtimeEnvironmentServesFilesByPath } from './runtime-file-address'
 import {
   fsAppendDownloadedFileChunk,
   fsFinishDownloadedFile,
@@ -314,6 +316,46 @@ describe('what stays as it was', () => {
     expect(fsReadFile).not.toHaveBeenCalled()
     expect(fsWriteFile).not.toHaveBeenCalled()
     expect(fsStat).not.toHaveBeenCalled()
+  })
+
+  it('asks an older host its status at most once per status lifetime, and keeps it cached', async () => {
+    pathServingHosts = new Set()
+    const statusCalls = () =>
+      runtimeEnvironmentTransportCall.mock.calls.filter(
+        ([request]) => request.method === 'status.get'
+      )
+
+    for (let index = 0; index < 5; index += 1) {
+      await expect(statRuntimePath(owner('env-a'), `/tmp/out-${index}.log`)).rejects.toThrow(
+        'Remote file is outside the owning runtime worktree'
+      )
+      await expect(writeRuntimeFile(owner('env-a'), HOST_FILE, 'x', USER_FILE)).rejects.toThrow(
+        'Remote file is outside the owning runtime worktree'
+      )
+    }
+    // Other capability checks still read the cached status instead of re-asking.
+    expect(
+      await runtimeEnvironmentSupportsCapability(
+        'env-a',
+        FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY
+      )
+    ).toBe(true)
+
+    expect(statusCalls()).toHaveLength(1)
+    expect(fileCalls()).toEqual([])
+  })
+
+  it('uses a stale answer at once and refreshes it in the background', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1_000)
+    expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(true)
+    pathServingHosts = new Set()
+    now.mockReturnValue(1_000 + 61_000)
+
+    expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(false)
+    now.mockRestore()
   })
 
   it('shows the host’s refusal for a path it does not serve, never this computer’s file', async () => {
