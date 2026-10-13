@@ -43,8 +43,8 @@ export async function requestMobileStructuredAgentSessionCancel(args: {
   // Check the capability before fields enter the fingerprint.
   const prompt = args.prompt && args.promptCancelSupported === true ? args.prompt : undefined
   // Such a host stops whatever the chat has in flight, a send the agent has not echoed included;
-  // a card's own Cancel still names the turn that raised it.
-  const unnamed = args.hostStopsConversation === true && !prompt
+  // a card's Cancel names the turn that raised it, prompt identity sent or not.
+  const unnamed = args.hostStopsConversation === true && !args.prompt
   if (!client || !sessionId || !enabled || current.fence === null || (!turnId && !unnamed)) {
     onSendError('Stop not sent')
     return false

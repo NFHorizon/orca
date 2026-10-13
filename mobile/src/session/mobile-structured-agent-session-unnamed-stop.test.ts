@@ -35,6 +35,7 @@ function press(input: {
   turnId: string | null
   hostStopsConversation: boolean | null
   prompt?: { itemId: string; expectedRevision: number }
+  promptCancelSupported?: boolean
 }) {
   const onSendError = vi.fn()
   const pressed = requestMobileStructuredAgentSessionCancel({
@@ -42,7 +43,7 @@ function press(input: {
     sessionId: 'session-1',
     enabled: true,
     stateRef: { current: state(input.turnId) },
-    promptCancelSupported: true,
+    promptCancelSupported: input.promptCancelSupported ?? true,
     ...(input.prompt ? { prompt: input.prompt } : {}),
     hostAnswersRepeatedStops: true,
     hostStopsConversation: input.hostStopsConversation,
@@ -73,6 +74,20 @@ describe('phone Stop against a host that stops what the chat has in flight', () 
     const prompt = { itemId: 'prompt-1', expectedRevision: 2 }
     await press({ sent, turnId: 'turn-1', hostStopsConversation: true, prompt }).pressed
     expect(sent[0]).toMatchObject({ turnId: 'turn-1', prompt })
+  })
+
+  it("keeps naming a card's turn when the host cannot take the card's identity", async () => {
+    const sent: SentParams[] = []
+    const prompt = { itemId: 'prompt-1', expectedRevision: 2 }
+    await press({
+      sent,
+      turnId: 'turn-1',
+      hostStopsConversation: true,
+      prompt,
+      promptCancelSupported: false
+    }).pressed
+    expect(sent[0]).toMatchObject({ turnId: 'turn-1' })
+    expect(sent[0]).not.toHaveProperty('prompt')
   })
 
   it('names the turn to an older host, and sends nothing there before one opens', async () => {

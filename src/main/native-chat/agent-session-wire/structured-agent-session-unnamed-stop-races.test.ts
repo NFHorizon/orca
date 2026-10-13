@@ -114,8 +114,16 @@ it('Codex: reaches a turn admitted before its started notification or user echo'
 it('Codex: never answers a quiet success while an admitted turn cannot yet take an interrupt', async () => {
   const { current, interrupts } = await admittedCodexSend()
   const response = await current.host.cancel(CALLER, unnamedStop())
-  expect(response).not.toMatchObject({ ok: true, value: { cancelled: false } })
   expect(interrupts().length).toBeGreaterThan(0)
+  const child = current.host.collaboratorsForTests().sessions.get(SESSION)?.child
+  if (response.ok) {
+    // Success only once the agent's end is proven: the host lets go of a child only then.
+    expect(response.value.cancelled).toBe(true)
+    expect(child ?? null).toBeNull()
+  } else {
+    // While the agent may still run the turn, the Stop says it is unconfirmed.
+    expect(response.refusal.code).toBe('agent_session_operation_unknown')
+  }
 })
 
 it('Codex: a retried Stop replays and never interrupts a later turn', async () => {
