@@ -36,10 +36,13 @@ export const HOST_FILE_ROOT_SCOPE: LocalFileRootScope = {
  * A runtime request naming a host file by its absolute path: the project roots plus this host's
  * chat visuals folder, every chat's subfolder included. Separate from `HOST_FILE_ROOT_SCOPE` so
  * workspace-addressed requests (and their deletes and renames) never reach Orca's own state.
+ * `user-file` is accepted on the wire but not honoured here, so it stays inside these roots too;
+ * letting a clicked file reach anywhere on the host is adding it to `accessKinds`.
  */
 export const HOST_PATH_TARGET_ROOT_SCOPE: LocalFileRootScope = {
   // Why the profile path: chat hosts and their visuals folders open in it on this process.
-  extraRoots: () => [nativeChatVisualsRootFor(getProfileUserDataPath())]
+  extraRoots: () => [nativeChatVisualsRootFor(getProfileUserDataPath())],
+  accessKinds: new Set()
 }
 
 export type ScopedAuthorizedPathOptions = Omit<ResolveAuthorizedPathOptions, 'extraRoots'>

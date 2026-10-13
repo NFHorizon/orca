@@ -1,4 +1,3 @@
-import { isAbsolute, sep } from 'node:path'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type {
   RuntimeFilePreviewResult,
@@ -6,16 +5,9 @@ import type {
   RuntimeFileStatResult,
   RuntimeHostPathFileReadResult
 } from '../../shared/runtime-file-contracts'
-import type { LocalFileAccess } from '../../shared/local-file-access'
-import { PATH_ACCESS_DENIED_MESSAGE } from '../ipc/filesystem-auth'
 import { readLocalFileRange } from '../ipc/filesystem/local-file-range-read'
-import {
-  resolveLocalRequestPathInScope,
-  type LocalRequestOperation
-} from '../ipc/local-file-access-resolution'
-import { HOST_PATH_TARGET_ROOT_SCOPE } from '../ipc/local-file-root-scope'
+import type { LocalRequestOperation } from '../ipc/local-file-access-resolution'
 import type { LocalFilesystemProvider } from '../providers/local-filesystem-provider'
-import type { Store } from '../persistence'
 import { toRuntimeFileStatResult } from './runtime-file-command-access'
 import { isMobileBinaryPath } from './runtime-file-command-host'
 import { requireLocalRuntimeFileRoute } from './runtime-file-command-target'
@@ -24,34 +16,9 @@ import { assertRuntimeFileMutationExpectation } from './runtime-file-commands-mo
 import { truncateMobileFilePreview } from './runtime-file-commands-terminal-artifact-access'
 import { readAuthorizedFilePreview } from './runtime-file-commands-read-file-explorer-preview'
 import { readAuthorizedLocalMobileFile } from './runtime-file-commands-terminal-file-paths'
-
-/** A file on this host named by its absolute path; `access` is what the client declares. */
-export type HostPathFileTarget = { path: string; access?: LocalFileAccess }
+import { resolveHostPathTarget, type HostPathFileTarget } from './runtime-host-path-target'
 
 const THIS_HOST = { executionHostId: LOCAL_EXECUTION_HOST_ID } as const
-
-// Why not isAbsolute alone: on Windows `\dir\file` is absolute to whichever drive is current.
-function isHostNativeAbsolutePath(path: string): boolean {
-  return isAbsolute(path) && (sep === '/' || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(path))
-}
-
-/** This host's authorization of a host-path request; its rule lives in the scope. */
-export function resolveHostPathTarget(
-  target: HostPathFileTarget,
-  store: Store,
-  operation: LocalRequestOperation
-): Promise<string> {
-  if (!isHostNativeAbsolutePath(target.path)) {
-    return Promise.reject(new Error(PATH_ACCESS_DENIED_MESSAGE))
-  }
-  return resolveLocalRequestPathInScope(
-    target.path,
-    target.access,
-    store,
-    operation,
-    HOST_PATH_TARGET_ROOT_SCOPE
-  )
-}
 
 export class RuntimeFileCommandsWithHostPathFiles extends RuntimeFileCommandsWithCreateFileExplorerDirNoClobber {
   async readHostPathFile(target: HostPathFileTarget): Promise<RuntimeHostPathFileReadResult> {
