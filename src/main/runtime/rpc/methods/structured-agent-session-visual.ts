@@ -5,14 +5,18 @@
 // The host resolves the folder from its own state directory and record; a client supplies only the
 // session id and a bare file name.
 
+import { join } from 'node:path'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import {
   ReadVisualParams,
   type AgentSessionReadVisualResult
 } from '../../../../shared/rpc-contract/agent-session-visual-params'
-import { nativeChatVisualsFolderFor } from '../../../native-chat/native-chat-visuals-folder'
+import {
+  nativeChatVisualsFolderFor,
+  nativeChatVisualsRootFor
+} from '../../../native-chat/native-chat-visuals-folder'
 import { getProfileUserDataPath } from '../../../orca-profiles/profile-storage-paths'
-import { readNativeChatVisualFile } from '../../../native-chat/native-chat-visual-file-read'
+import { readNativeChatVisualPath } from '../../../native-chat/native-chat-visual-file-read'
 import { defineMethod } from '../core'
 import { requireInstalledStructuredHost } from './structured-agent-session-gate'
 
@@ -36,8 +40,12 @@ export const STRUCTURED_AGENT_SESSION_VISUAL_METHODS = [
         return { ok: false, error: 'unsupported_location' }
       }
       // The same state directory the chat host and its journal are opened in on this process.
-      const folder = nativeChatVisualsFolderFor(getProfileUserDataPath(), params.sessionId)
-      return readNativeChatVisualFile(folder, params.file, params.knownRevision)
+      const stateDirectory = getProfileUserDataPath()
+      return readNativeChatVisualPath(
+        nativeChatVisualsRootFor(stateDirectory),
+        join(nativeChatVisualsFolderFor(stateDirectory, params.sessionId), params.file),
+        params.knownRevision
+      )
     }
   })
 ]
