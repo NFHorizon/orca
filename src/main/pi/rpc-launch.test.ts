@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import {
+  LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
+  NATIVE_CHAT_SCRATCH_DIR_ENV
+} from '../native-chat/native-chat-visuals-delivery'
 import { resolveProviderChildEnv } from '../provider-process/provider-process-launch'
 import { sealStructuredSessionChild } from '../runtime/structured-session-child-env'
 import {
@@ -103,6 +107,12 @@ describe('Pi RPC launch', () => {
         inherited
       )
     ).toEqual({})
+    // Orca itself started from a chat, which named that chat's scratch folder.
+    const parentChat = {
+      ...inherited,
+      [NATIVE_CHAT_SCRATCH_DIR_ENV]: '/parent/scratch',
+      [LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV]: '/parent/visuals'
+    }
     // As a structured launch seals it: no caller of its own env, then this session's identity.
     const childEnv = resolveProviderChildEnv(
       buildPiRpcLaunch({
@@ -110,11 +120,11 @@ describe('Pi RPC launch', () => {
         ...sealStructuredSessionChild({
           sessionId: 'this-session',
           spawnToken: 'this-token',
-          env: withoutPiCallerEnv(inherited),
+          env: withoutPiCallerEnv(parentChat),
           inheritedEnvToDelete: PI_RPC_SESSION_ENV_TO_DELETE
         })
       }),
-      inherited
+      parentChat
     )
     expect(childEnv).toMatchObject({
       ORCA_AGENT_SESSION_ID: 'this-session',
@@ -122,5 +132,8 @@ describe('Pi RPC launch', () => {
       ORCA_AGENT_SESSION_SPAWN_TOKEN: 'this-token'
     })
     expect(childEnv).not.toHaveProperty('ORCA_TERMINAL_HANDLE')
+    // Pi gets no scratch folder; an inherited one names another chat's.
+    expect(childEnv).not.toHaveProperty(NATIVE_CHAT_SCRATCH_DIR_ENV)
+    expect(childEnv).not.toHaveProperty(LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV)
   })
 })
