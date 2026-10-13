@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpenFile } from '@/store/slices/editor'
 import type { FileContent } from './editor-panel-content-types'
+import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
+import { PATH_OUTSIDE_ALLOWED_DIRECTORIES } from '../../../../shared/local-file-access'
 
 const mocks = vi.hoisted(() => ({
   readRuntimeFileContent: vi.fn(),
@@ -120,6 +122,41 @@ describe('restoring a tab for a file outside every workspace on a paired host', 
         relativePath: HOST_FILE,
         connectionId: undefined,
         access: { kind: 'user-file' }
+      })
+    )
+  })
+
+  it('shows today’s refusal when the host does not serve the path (a restored grant tab)', async () => {
+    mocks.runtimeEnvironmentServesFilesByPath.mockResolvedValue(true)
+    mocks.readRuntimeFileContent.mockRejectedValue(
+      new RuntimeRpcCallError({
+        id: 'rpc',
+        ok: false,
+        error: { code: 'runtime_error', message: PATH_OUTSIDE_ALLOWED_DIRECTORIES },
+        _meta: { runtimeId: 'remote-runtime' }
+      })
+    )
+    // Grants are never persisted, so a restored grant tab comes back read-only without one.
+    const grantTabs = [
+      {
+        ...hostFileTab,
+        id: '/etc/hosts',
+        filePath: '/etc/hosts',
+        relativePath: '/etc/hosts',
+        runtimeEnvironmentId: 'env-1',
+        readOnly: true
+      }
+    ]
+
+    await act(async () => {
+      root?.render(<HookProbe file={grantTabs[0]!} openFiles={grantTabs} />)
+    })
+
+    await vi.waitFor(() =>
+      expect(latestFileContents['/etc/hosts']).toEqual({
+        content: '',
+        isBinary: false,
+        loadError: 'External local files are not available for remote workspaces.'
       })
     )
   })

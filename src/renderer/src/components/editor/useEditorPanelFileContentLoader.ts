@@ -27,6 +27,10 @@ import { findRestoredEditorWorkspaceRuntimeOwner } from './restored-editor-works
 import type { RuntimeWorkspaceFileRoute } from '@/lib/runtime-workspace-file-route'
 import { editorTabFileAccess, isClientLocalReadOnlyTab } from '@/lib/local-file-access'
 import { isFloatingWorkspaceId } from '../../../../shared/floating-workspace-worktree'
+import { isPathOutsideAllowedDirectoriesError } from '../../../../shared/local-file-access'
+
+const EXTERNAL_LOCAL_FILES_UNAVAILABLE_MESSAGE =
+  'External local files are not available for remote workspaces.'
 
 const inFlightFileReads = new Map<string, InFlightContentRead<FileContent>>()
 
@@ -91,6 +95,8 @@ export function useEditorPanelFileContentLoader({
       fileReadGenerationRef.current[id] = generation
       outstandingFileReadsRef.current[id] = generation
       let readConnectionId: string | undefined
+      // Why: a path the host won't serve must fail exactly as it did before hosts served paths.
+      let readsOutsideFileByHostPath = false
       try {
         const resolvedConnectionId = getConnectionIdForFile(worktreeId ?? null, filePath)
         const connectionId = resolvedConnectionId ?? undefined
@@ -190,11 +196,15 @@ export function useEditorPanelFileContentLoader({
               runtimeEnvironmentId &&
               !route &&
               !restoredOpenFile.terminalArtifactGrantId &&
-              // Why: a host that serves paths answers for this file itself, refusing what it won't reach.
-              (externalSshOwnerId || !(await runtimeEnvironmentServesFilesByPath(runtimeEnvironmentId)))
+              // Why: a host that serves paths is asked for this file itself.
+              (externalSshOwnerId ||
+                !(await runtimeEnvironmentServesFilesByPath(runtimeEnvironmentId)))
             ) {
-              throw new Error('External local files are not available for remote workspaces.')
+              throw new Error(EXTERNAL_LOCAL_FILES_UNAVAILABLE_MESSAGE)
             }
+            readsOutsideFileByHostPath = Boolean(
+              runtimeEnvironmentId && !route && !restoredOpenFile.terminalArtifactGrantId
+            )
             if (!externalSshOwnerId) {
               // Why: a client-local external tab names a client path, so this read must stay off
               // the worktree's SSH host.
@@ -274,15 +284,21 @@ export function useEditorPanelFileContentLoader({
           hostConnection.phase === 'connecting' &&
           readConnectionId !== undefined &&
           readConnectionId === hostConnection.targetId
+        const hostRefusedPath =
+          readsOutsideFileByHostPath && isPathOutsideAllowedDirectoriesError(err)
         const message = hostConnecting
           ? WORKTREE_OWNER_NOT_READY_ERROR
-          : err instanceof Error
-            ? err.message
-            : String(err)
+          : hostRefusedPath
+            ? EXTERNAL_LOCAL_FILES_UNAVAILABLE_MESSAGE
+            : err instanceof Error
+              ? err.message
+              : String(err)
         // Why: a host may put prose on the message and the machine token on `.code`;
         // classifiers downstream must see the token, not only its rendering (#21041).
         const loadErrorCode =
-          !hostConnecting && err instanceof RuntimeRpcCallError ? err.code : undefined
+          !hostConnecting && !hostRefusedPath && err instanceof RuntimeRpcCallError
+            ? err.code
+            : undefined
         setFileContents((prev) => ({
           ...prev,
           [id]: {
