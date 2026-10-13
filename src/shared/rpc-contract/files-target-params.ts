@@ -51,9 +51,9 @@ function hasAnyKey(input: unknown, keys: readonly string[]): boolean {
  * option's issues as-is, so the form a request did not choose must always abort.
  */
 export function workspaceOrHostPathTarget<
-  WorkspaceShape extends z.ZodRawShape,
-  HostPathShape extends z.ZodRawShape
->(workspaceForm: z.ZodObject<WorkspaceShape>, hostPathForm: z.ZodObject<HostPathShape>) {
+  WorkspaceFields extends Readonly<Record<string, z.ZodType>>,
+  HostPathFields extends Readonly<Record<string, z.ZodType>>
+>(workspaceForm: z.ZodObject<WorkspaceFields>, hostPathForm: z.ZodObject<HostPathFields>) {
   return z.union(
     [
       workspaceForm.extend({ path: z.never().optional(), access: z.never().optional() }),
