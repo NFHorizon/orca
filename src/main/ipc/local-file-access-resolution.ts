@@ -2,14 +2,15 @@ import { dirname, extname, isAbsolute, resolve } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 import type { Store } from '../persistence'
 import type { LocalFileAccess } from '../../shared/local-file-access'
-import {
-  PATH_ACCESS_DENIED_MESSAGE,
-  resolveAuthorizedPath,
-  type ResolveAuthorizedPathOptions
-} from './filesystem-auth'
+import { PATH_ACCESS_DENIED_MESSAGE } from './filesystem-auth'
 import { isDescendantOrEqual } from './filesystem-path-containment'
 import { PREVIEWABLE_BINARY_MIME_TYPES } from './filesystem/filesystem-file-content-inspection'
-import { getDefaultFloatingWorkspacePath } from './floating-workspace-directory'
+import {
+  DESKTOP_FILE_ROOT_SCOPE,
+  resolveScopedAuthorizedPath,
+  type LocalFileRootScope,
+  type ScopedAuthorizedPathOptions
+} from './local-file-root-scope'
 import {
   isDeviceNamespacePath,
   isNetworkSharePath,
@@ -27,12 +28,9 @@ const CHAT_IMAGE_TYPE_MESSAGE = 'Access denied: a chat can only show local image
 export async function resolveDesktopAuthorizedPath(
   targetPath: string,
   store: Store,
-  options: ResolveAuthorizedPathOptions = {}
+  options: ScopedAuthorizedPathOptions = {}
 ): Promise<string> {
-  return resolveAuthorizedPath(targetPath, store, {
-    ...options,
-    extraRoots: [getDefaultFloatingWorkspacePath()]
-  })
+  return resolveScopedAuthorizedPath(targetPath, store, DESKTOP_FILE_ROOT_SCOPE, options)
 }
 
 /** A file the user named is used where it is; no root applies, and nothing is remembered. */
@@ -112,7 +110,11 @@ async function resolveDocumentResourcePath(
  * only inside a project the user added from it (the default check); anywhere else its path text,
  * like a device path, is refused before any filesystem call.
  */
-async function resolveChatImagePath(targetPath: string, store: Store): Promise<string> {
+async function resolveChatImagePath(
+  targetPath: string,
+  store: Store,
+  rootScope: LocalFileRootScope
+): Promise<string> {
   if (typeof targetPath !== 'string' || !isAbsolute(targetPath)) {
     throw new Error(PATH_ACCESS_DENIED_MESSAGE)
   }
@@ -129,7 +131,7 @@ async function resolveChatImagePath(targetPath: string, store: Store): Promise<s
   }
   if (isNetworkSharePath(realTarget) && !isNetworkSharePath(resolvedTarget)) {
     // Why: a local link may still lead onto a share; that is readable only inside a project.
-    await resolveDesktopAuthorizedPath(realTarget, store)
+    await resolveScopedAuthorizedPath(realTarget, store, rootScope)
   }
   // Why the real target's type: `shot.png -> ~/.ssh/id_rsa` must not be read as an image.
   if (!isChatImage(realTarget)) {
@@ -207,7 +209,7 @@ function parseLocalFileAccess(access: unknown): LocalFileAccess | undefined {
   return undefined
 }
 
-/** What a desktop request does with its path; each declared kind adds access to only some. */
+/** What a request does with its path; each declared kind adds access to only some. */
 export type LocalRequestOperation = 'read' | 'write' | 'rename-from' | 'rename-to' | 'import-into'
 
 type KindRule = (targetPath: string) => Promise<string>
@@ -215,7 +217,8 @@ type KindRule = (targetPath: string) => Promise<string>
 function declaredKindRule(
   fileAccess: LocalFileAccess,
   operation: LocalRequestOperation,
-  store: Store
+  store: Store,
+  rootScope: LocalFileRootScope
 ): KindRule | undefined {
   switch (fileAccess.kind) {
     case 'user-file':
@@ -229,7 +232,7 @@ function declaredKindRule(
         : undefined
     case 'chat-image':
       return operation === 'read'
-        ? (targetPath) => resolveChatImagePath(targetPath, store)
+        ? (targetPath) => resolveChatImagePath(targetPath, store, rootScope)
         : undefined
     case 'document-folder':
       return operation === 'import-into'
@@ -239,21 +242,23 @@ function declaredKindRule(
 }
 
 /**
- * The one resolver for desktop local file requests. A declared kind never refuses what the default
- * project check allows; its own rule only adds paths outside every project.
+ * The one resolver for local file requests, from the desktop window or this host's runtime file
+ * services; `rootScope` is the caller's default-root set. A declared kind never refuses what that
+ * default check allows; its own rule only adds paths outside every root.
  */
-export async function resolveLocalRequestPath(
+export async function resolveLocalRequestPathInScope(
   targetPath: string,
   access: unknown,
   store: Store,
-  operation: LocalRequestOperation
+  operation: LocalRequestOperation,
+  rootScope: LocalFileRootScope
 ): Promise<string> {
   // Why the leaf is kept: a rename acts on a link itself, never on what it points to.
   const options = { preserveSymlink: operation === 'rename-from' || operation === 'rename-to' }
   const fileAccess = parseLocalFileAccess(access)
-  const kindRule = fileAccess && declaredKindRule(fileAccess, operation, store)
+  const kindRule = fileAccess && declaredKindRule(fileAccess, operation, store, rootScope)
   if (!fileAccess || !kindRule) {
-    return resolveDesktopAuthorizedPath(targetPath, store, options)
+    return resolveScopedAuthorizedPath(targetPath, store, rootScope, options)
   }
   if (typeof targetPath !== 'string') {
     throw new Error(PATH_ACCESS_DENIED_MESSAGE)
@@ -264,9 +269,12 @@ export async function resolveLocalRequestPath(
     throw new Error(PATH_ACCESS_DENIED_MESSAGE)
   }
   // Why the default check refuses an outside path by its text first: no share is contacted here.
-  const insideRoots = await resolveDesktopAuthorizedPath(targetPath, store, options).catch(
-    () => undefined
-  )
+  const insideRoots = await resolveScopedAuthorizedPath(
+    targetPath,
+    store,
+    rootScope,
+    options
+  ).catch(() => undefined)
   if (insideRoots === undefined) {
     return kindRule(targetPath)
   }
@@ -274,6 +282,22 @@ export async function resolveLocalRequestPath(
     throw new Error(PATH_ACCESS_DENIED_MESSAGE)
   }
   return insideRoots
+}
+
+/** A desktop window request: the project roots plus the floating-workspace folder. */
+export function resolveLocalRequestPath(
+  targetPath: string,
+  access: unknown,
+  store: Store,
+  operation: LocalRequestOperation
+): Promise<string> {
+  return resolveLocalRequestPathInScope(
+    targetPath,
+    access,
+    store,
+    operation,
+    DESKTOP_FILE_ROOT_SCOPE
+  )
 }
 
 /**

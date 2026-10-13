@@ -57,7 +57,10 @@ describe('RuntimeFileCommands', () => {
           absolutePath: expectedPath
         }
       })
-      expect(resolveAuthorizedPathMock).toHaveBeenCalledWith(expectedPath, expect.anything())
+      // The host scope adds no roots beyond this host's registered projects.
+      expect(resolveAuthorizedPathMock).toHaveBeenCalledWith(expectedPath, expect.anything(), {
+        extraRoots: []
+      })
     })
 
     it('does not translate UNC-style paths as WSL POSIX paths', async () => {

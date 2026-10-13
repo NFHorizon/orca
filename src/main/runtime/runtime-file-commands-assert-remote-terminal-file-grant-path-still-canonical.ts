@@ -12,7 +12,7 @@ import {
 import { stat } from 'node:fs/promises'
 import type { DirEntry, FsChangeEvent } from '../../shared/filesystem-entry-types'
 import { sortDirEntries } from '../../shared/file-name-sort'
-import { resolveAuthorizedPath } from '../ipc/filesystem-auth'
+import { resolveHostAuthorizedPath } from '../ipc/local-file-root-scope'
 import { watchWindowsRuntimeFileExplorer } from './runtime-file-command-host'
 import { beginWatcherInstall } from '../ipc/watcher-removal-gate'
 import {
@@ -51,7 +51,7 @@ export class RuntimeFileCommandsWithAssertRemoteTerminalFileGrantPathStillCanoni
       const finishInstall = beginWatcherInstall(target.path, sshTargetId)
       try {
         requireLocalRuntimeFileRoute(target)
-        const rootPath = await resolveAuthorizedPath(target.path, this.host.requireStore())
+        const rootPath = await resolveHostAuthorizedPath(target.path, this.host.requireStore())
         const rootStats = await stat(rootPath)
         if (!rootStats.isDirectory()) {
           throw new Error('not_a_directory')
@@ -91,7 +91,7 @@ export class RuntimeFileCommandsWithAssertRemoteTerminalFileGrantPathStillCanoni
     }
     if (!connectionId) {
       // Why: setup can fail before registerRuntimeFileWatcherRelease publishes its callback while the child owner still lives.
-      const resolvedRootPath = await resolveAuthorizedPath(rootPath, this.host.requireStore())
+      const resolvedRootPath = await resolveHostAuthorizedPath(rootPath, this.host.requireStore())
       await closeFileExplorerWatcherInWatcherProcess(resolvedRootPath)
     }
   }

@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import { readAuthorizedDocPreviewFile } from '../../shared/doc-preview-file-access'
 import { renameLocalPathSerializedByDestination } from '../destination-serialized-local-rename'
-import type { resolveAuthorizedPath as ResolveAuthorizedPath } from '../ipc/filesystem-auth'
+import type { resolveHostAuthorizedPath } from '../ipc/local-file-root-scope'
 import { isENOENT } from '../ipc/filesystem-path-containment'
 import { assertNotExists, rethrowWithUserMessage } from '../ipc/filesystem-create-path-guards'
 import { classifyFilesystemDirectoryEntries } from '../ipc/filesystem-symlink-directory-entries'
@@ -18,7 +18,7 @@ export type LocalFilesystemProviderOptions = {
   /** Read lazily so a call that fails earlier never touches the store. */
   requireStore(): Store
   /** Injected: the auth layer reaches the host router, so importing it here would be a cycle. */
-  resolveAuthorizedPath: typeof ResolveAuthorizedPath
+  resolveAuthorizedPath: typeof resolveHostAuthorizedPath
 }
 
 /**
@@ -44,7 +44,7 @@ export type LocalFilesystemProvider = Required<Pick<IFilesystemProvider, 'listMa
     | 'search'
   >
 
-/** This machine's file operations behind the store's path authorization; build one per call. */
+/** This machine's file operations behind the injected path authorization; build one per call. */
 export function createLocalFilesystemProvider(
   options: LocalFilesystemProviderOptions
 ): LocalFilesystemProvider {
