@@ -227,6 +227,26 @@ describe('inline visual Share', () => {
     expect(publishCalls()).toHaveLength(0)
   })
 
+  it('drops an open Share when path reads stop, and does not reopen it when they return', async () => {
+    const view = render(chat(PAIRED, FILE_ROUTE))
+    await waitFor(() => expect(view.container.querySelector('iframe')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', SHARE))
+    await screen.findByRole('button', { name: 'Generate link' })
+    const toolbar = (): Element | null =>
+      screen.getByRole('button', OPEN).closest('[data-share-open]')
+    expect(toolbar()).toHaveAttribute('data-share-open', 'true')
+
+    // The host's re-probe is still running: the page stays, Share is not offered.
+    view.rerender(chat(PAIRED, { kind: 'pending', scratchDirectory: FOLDER }))
+    expect(screen.queryByRole('button', SHARE)).toBeNull()
+    expect(toolbar()).toHaveAttribute('data-share-open', 'false')
+
+    view.rerender(chat(PAIRED, FILE_ROUTE))
+    expect(screen.getByRole('button', SHARE)).toBeInTheDocument()
+    expect(toolbar()).toHaveAttribute('data-share-open', 'false')
+    expect(screen.queryByRole('button', { name: 'Generate link' })).toBeNull()
+  })
+
   it('keeps the toolbar shown while Share is open, and both buttons are reachable by keyboard', async () => {
     const user = userEvent.setup()
     await shownVisual(LOCAL)

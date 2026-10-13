@@ -19,6 +19,7 @@ import {
 import { nativeChatVisualHostPath } from '../../../../shared/native-chat-visual-host-path'
 import {
   markNativeChatVisualReads,
+  nativeChatVisualFileKey,
   type NativeChatVisualFile
 } from './native-chat-visual-path-read-client'
 import { useNativeChatVisualSavedMark } from './native-chat-visual-refresh'
@@ -126,6 +127,7 @@ export function NativeChatInlineVisual({
     return <NativeChatVisualUnavailable />
   }
   const label = title ?? file
+  const shareFile = hostFile.kind === 'file' ? hostFile.file : null
 
   return (
     <div ref={boxRef} className="group/visual relative my-3">
@@ -139,10 +141,12 @@ export function NativeChatInlineVisual({
             onRetired={() => setRetired(true)}
           />
           <NativeChatInlineVisualToolbar
+            // Why keyed: Share's open state belongs to one shareable file; losing path reads drops it.
+            key={shareFile ? nativeChatVisualFileKey(shareFile) : 'open-only'}
             owner={owner}
             file={file}
             title={title}
-            shareFile={hostFile.kind === 'file' ? hostFile.file : null}
+            shareFile={shareFile}
             onShareReadStarted={setSharedMark}
           />
         </>
@@ -158,7 +162,7 @@ export function NativeChatInlineVisual({
   )
 }
 
-/** Owns Share's open state, so it unmounts with the toolbar and a returning visual starts closed. */
+/** Owns Share's open state, so a visual that returns, or regains path reads, starts closed. */
 function NativeChatInlineVisualToolbar({
   owner,
   file,
