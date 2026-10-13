@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionRecord } from '../../../../shared/agent-session-record'
 import { agentSessionRecordFixture } from '../../../../shared/agent-session-record.test-fixture'
@@ -97,6 +97,22 @@ describe('agentSession.readVisual', () => {
     expect(typeof againResult === 'object' && againResult !== null && 'html' in againResult).toBe(
       false
     )
+  })
+
+  it('reads from a data directory given relative to the working directory', async () => {
+    await writeVisual('chart.html', '<p>chart</p>')
+    const absolute = stateDirectory
+    stateDirectory = relative(process.cwd(), absolute)
+    try {
+      const reply = await call(
+        'agentSession.readVisual',
+        { sessionId: SESSION, file: 'chart.html' },
+        STRUCTURED_CLIENT
+      )
+      expect(reply).toMatchObject({ ok: true, result: { ok: true, html: '<p>chart</p>' } })
+    } finally {
+      stateDirectory = absolute
+    }
   })
 
   it('reports a missing file or a chat with no folder as not_found', async () => {

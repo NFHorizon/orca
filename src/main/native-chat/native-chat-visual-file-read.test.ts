@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile, link } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { NATIVE_CHAT_VISUAL_MAX_BYTES } from '../../shared/native-chat-visual-directive'
 import {
@@ -63,6 +63,13 @@ describe('readNativeChatVisualPath', () => {
       revision: nativeChatVisualRevision(Buffer.from(html)),
       sizeBytes: Buffer.byteLength(html)
     })
+  })
+
+  it('resolves a visuals root given relative to the working directory', async () => {
+    await writeFile(join(folder, 'chart.html'), '<p>a</p>')
+    expect(
+      await readNativeChatVisualPath(relative(process.cwd(), root), join(folder, 'chart.html'))
+    ).toMatchObject({ ok: true, html: '<p>a</p>' })
   })
 
   it('answers unchanged without the bytes when the client already holds the revision', async () => {

@@ -5,7 +5,7 @@
 // The host resolves the folder from its own state directory and record; a client supplies only the
 // session id and a bare file name.
 
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import {
   ReadVisualParams,
@@ -39,8 +39,9 @@ export const STRUCTURED_AGENT_SESSION_VISUAL_METHODS = [
       ) {
         return { ok: false, error: 'unsupported_location' }
       }
-      // The same state directory the chat host and its journal are opened in on this process.
-      const stateDirectory = getProfileUserDataPath()
+      // The same state directory the chat host and its journal are opened in on this process;
+      // resolved because the reader accepts only absolute paths and the data root may be relative.
+      const stateDirectory = resolve(getProfileUserDataPath())
       return readNativeChatVisualPath(
         nativeChatVisualsRootFor(stateDirectory),
         join(nativeChatVisualsFolderFor(stateDirectory, params.sessionId), params.file),

@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto'
 import { constants, type Stats } from 'node:fs'
 import { lstat, open, realpath, type FileHandle } from 'node:fs/promises'
-import { basename, dirname, join, posix, win32 } from 'node:path'
+import { basename, dirname, join, posix, resolve, win32 } from 'node:path'
 import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
 import {
   NATIVE_CHAT_VISUAL_MAX_BYTES,
@@ -256,12 +256,14 @@ export async function readNativeChatVisualPath(
   knownRevision?: string
 ): Promise<AgentSessionReadVisualResult> {
   try {
-    const parts = nativeChatVisualPathParts(visualsRoot, filePath)
+    // Why resolve: the host's data root may be relative, and the shape check needs an absolute root.
+    const root = resolve(visualsRoot)
+    const parts = nativeChatVisualPathParts(root, filePath)
     if (!parts) {
       refuse('outside_folder')
     }
     // Rebuilt from the validated parts so the disk checks walk the host's own spelling of the root.
-    return await readContained(join(visualsRoot, parts.folderName), parts.file, knownRevision)
+    return await readContained(join(root, parts.folderName), parts.file, knownRevision)
   } catch (error) {
     if (error instanceof VisualReadRefusal) {
       return { ok: false, error: error.refusal }
