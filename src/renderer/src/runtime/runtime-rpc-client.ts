@@ -222,6 +222,11 @@ export function markRuntimeEnvironmentCompatible(environmentId: string): void {
   })
 }
 
+/** The status this renderer last proved for an environment, without asking it again. */
+export function peekRuntimeEnvironmentStatus(environmentId: string): RuntimeStatus | null {
+  return runtimeCompatibilityChecks.get(environmentId.trim())?.status ?? null
+}
+
 export async function getRuntimeEnvironmentStatus(
   environmentId: string,
   timeoutMs?: number

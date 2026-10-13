@@ -220,6 +220,23 @@ describe('a link its host does not serve by path stays as it was', () => {
     )
   })
 
+  it('adds no status traffic to an older host across repeated clicks', async () => {
+    hostIsOlder()
+    hostHasNoWorkspaceFor(HOST_FILE, grant)
+
+    for (let click = 0; click < 3; click += 1) {
+      openDetectedFilePath(HOST_FILE, null, null, { ...serverWorkspace, terminalHandle: 'term-1' })
+      await flushDoubleRaf()
+    }
+
+    expect(openFileMock).toHaveBeenCalledTimes(3)
+    expect(
+      runtimeEnvironmentTransportCallMock.mock.calls.filter(
+        ([args]) => args.method === 'status.get'
+      )
+    ).toHaveLength(1)
+  })
+
   it('keeps the grant for a path the host refuses to serve', async () => {
     hostHasNoWorkspaceFor('/etc/hosts', {
       openTarget: { ...grant.openTarget, absolutePath: '/etc/hosts' }

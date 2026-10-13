@@ -90,9 +90,10 @@ async function statClientLocalFile(
 }
 
 /** Null when the host does not serve this path by itself (older host, outside its reach, or absent). */
-async function statHostPathFile(
+export async function statHostPathFile(
   context: RuntimeFileOperationArgs,
-  absolutePath: string
+  absolutePath: string,
+  timeoutMs = 15_000
 ): Promise<HostPathFile | null> {
   const address = await resolveRuntimeHostPathAddress(context, absolutePath, userNamedFileAccess())
   if (!address) {
@@ -103,7 +104,7 @@ async function statHostPathFile(
       address.target,
       'files.stat',
       address.params,
-      { timeoutMs: 15_000 }
+      { timeoutMs }
     )
     return { kind: 'host-path', absolutePath, isDirectory: stat.isDirectory }
   } catch (error) {
