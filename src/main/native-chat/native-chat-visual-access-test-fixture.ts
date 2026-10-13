@@ -1,5 +1,5 @@
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
-import { join, sep } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import {
   legacyNativeChatVisualsRootFor,
   nativeChatScratchFolderFor,
@@ -29,7 +29,7 @@ export async function createChatVisualAccessFixture(
   const scratchFolder = nativeChatScratchFolderFor(userData, 'session-1')
   const visual = join(scratchFolder, 'chart.html')
   const chatFolderName = nativeChatScratchFolderName('session-1')
-  const projectLookalike = join(project, 'chat-scratch', chatFolderName)
+  const projectLookalike = join(project, basename(scratchRoot), chatFolderName)
   const legacyFolder = join(legacyNativeChatVisualsRootFor(userData), chatFolderName)
   const nonHexFolder = join(scratchRoot, 'not-a-chat-folder')
   for (const dir of [

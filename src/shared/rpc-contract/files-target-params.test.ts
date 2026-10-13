@@ -104,7 +104,7 @@ describe.each(METHODS)('%s target', (method) => {
   })
 
   it(`${method === 'files.read' ? 'accepts' : 'refuses'} a chat-visual access`, () => {
-    const visual = { path: '/srv/chat-scratch/0123/chart.html', access: { kind: 'chat-visual' } }
+    const visual = { path: '/srv/scratch-root/0123/chart.html', access: { kind: 'chat-visual' } }
     for (const schema of parsers(method)) {
       const message = firstMessage(schema, { ...visual, ...fields })
       if (method === 'files.read') {

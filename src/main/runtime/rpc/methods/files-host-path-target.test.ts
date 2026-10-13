@@ -169,7 +169,7 @@ describe('file methods route each target form to its own command', () => {
 })
 
 describe('a chat-visual access', () => {
-  const VISUAL = { path: '/state/chat-scratch/0123/chart.html', access: { kind: 'chat-visual' } }
+  const VISUAL = { path: '/state/scratch-root/0123/chart.html', access: { kind: 'chat-visual' } }
 
   it('reaches the host-path read of files.read, through the same host gate', async () => {
     const { fns, dispatcher } = makeRuntime()
