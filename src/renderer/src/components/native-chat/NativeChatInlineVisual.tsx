@@ -37,18 +37,18 @@ function useNativeChatVisualHostFile(
 ): NativeChatVisualHostFile {
   const route = reading?.route ?? null
   return useMemo(() => {
-    const legacy: NativeChatVisualHostFile = {
-      kind: 'legacy',
-      identity: { target: owner.target, sessionId: owner.sessionId, file }
+    const identity = { target: owner.target, sessionId: owner.sessionId, file }
+    const path =
+      route === null || route.kind === 'legacy'
+        ? null
+        : nativeChatVisualHostPath(route.scratchDirectory, file)
+    if (route === null || path === null) {
+      return { kind: 'legacy', identity }
     }
-    if (route === null || route.kind === 'legacy') {
-      return legacy
-    }
-    if (route.kind === 'pending') {
-      return { kind: 'pending' }
-    }
-    const path = nativeChatVisualHostPath(route.scratchDirectory, file)
-    return path === null ? legacy : { kind: 'file', file: { target: owner.target, path } }
+    const hostFile = { target: owner.target, path }
+    return route.kind === 'pending'
+      ? { kind: 'pending', file: hostFile, identity }
+      : { kind: 'file', file: hostFile }
   }, [file, owner.sessionId, owner.target, route])
 }
 
