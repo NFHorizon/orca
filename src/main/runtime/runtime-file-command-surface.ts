@@ -35,6 +35,7 @@ type RuntimeFileCommandName =
   | 'readHostPathFile'
   | 'readHostPathFilePreview'
   | 'readHostPathFileChunk'
+  | 'readHostPathDocPreviewFile'
   | 'statHostPathFile'
   | 'writeHostPathFile'
 
@@ -79,6 +80,7 @@ export function installRuntimeFileCommandSurface(
     readHostPathFile: commands.readHostPathFile.bind(commands),
     readHostPathFilePreview: commands.readHostPathFilePreview.bind(commands),
     readHostPathFileChunk: commands.readHostPathFileChunk.bind(commands),
+    readHostPathDocPreviewFile: commands.readHostPathDocPreviewFile.bind(commands),
     statHostPathFile: commands.statHostPathFile.bind(commands),
     writeHostPathFile: commands.writeHostPathFile.bind(commands)
   } satisfies RuntimeFileCommandSurface)

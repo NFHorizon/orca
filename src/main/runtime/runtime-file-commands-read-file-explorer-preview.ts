@@ -63,18 +63,13 @@ export class RuntimeFileCommandsWithReadFileExplorerPreview extends RuntimeFileC
     )
     const implicitRoot = implicitRootRelativePath === null ? null : authorityRoots[0]
     const authorizedRoots = authorityRoots.slice(implicitRoot === null ? 0 : 1)
-    const binaryMaxBytes =
-      maxContentBytes === undefined
-        ? LOCAL_PREVIEWABLE_BINARY_MAX_BYTES
-        : previewableBinaryByteLimit(maxContentBytes)
     const request: DocPreviewFileAccessRequest = {
       boundaryPath: boundary.path,
       entryPath: entry.path,
       implicitRootPath: implicitRoot?.path ?? null,
       authorizedRootPaths: authorizedRoots.map((root) => root.path),
       targetPath: target.path,
-      maxTextBytes: MOBILE_FILE_READ_MAX_BYTES,
-      maxBinaryBytes: binaryMaxBytes
+      ...docPreviewReadLimits(maxContentBytes)
     }
     const provider = requireRuntimeFileProvider(target, this.host)
     if (!provider.readDocPreviewFile) {
@@ -96,6 +91,19 @@ export class RuntimeFileCommandsWithReadFileExplorerPreview extends RuntimeFileC
     requireLocalRuntimeFileRoute(target)
     const filePath = await resolveHostAuthorizedPath(target.path, this.host.requireStore())
     return readLocalFileRange(filePath, offset, length)
+  }
+}
+
+/** A document preview's read caps, its binary one fitted to the caller's transport budget. */
+export function docPreviewReadLimits(
+  maxContentBytes?: number
+): Pick<DocPreviewFileAccessRequest, 'maxTextBytes' | 'maxBinaryBytes'> {
+  return {
+    maxTextBytes: MOBILE_FILE_READ_MAX_BYTES,
+    maxBinaryBytes:
+      maxContentBytes === undefined
+        ? LOCAL_PREVIEWABLE_BINARY_MAX_BYTES
+        : previewableBinaryByteLimit(maxContentBytes)
   }
 }
 

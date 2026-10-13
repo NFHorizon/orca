@@ -1,3 +1,7 @@
+import {
+  readAuthorizedDocPreviewFile,
+  type DocPreviewFileAccessResult
+} from '../../shared/doc-preview-file-access'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type {
   RuntimeFilePreviewResult,
@@ -13,13 +17,27 @@ import { toRuntimeFileStatResult } from './runtime-file-command-access'
 import { isMobileBinaryPath } from './runtime-file-command-host'
 import { requireLocalRuntimeFileRoute } from './runtime-file-command-target'
 import { RuntimeFileCommandsWithCreateFileExplorerDirNoClobber } from './runtime-file-commands-create-file-explorer-dir-no-clobber'
-import { assertRuntimeFileMutationExpectation } from './runtime-file-commands-mobile-file-list-limit'
+import {
+  assertPreviewWithinTransportBudget,
+  assertRuntimeFileMutationExpectation
+} from './runtime-file-commands-mobile-file-list-limit'
 import { truncateMobileFilePreview } from './runtime-file-commands-terminal-artifact-access'
-import { readAuthorizedFilePreview } from './runtime-file-commands-read-file-explorer-preview'
+import {
+  docPreviewReadLimits,
+  readAuthorizedFilePreview
+} from './runtime-file-commands-read-file-explorer-preview'
 import { readAuthorizedLocalMobileFile } from './runtime-file-commands-terminal-file-paths'
 import { resolveHostPathTarget, type HostPathFileTarget } from './runtime-host-path-target'
 
 const THIS_HOST = { executionHostId: LOCAL_EXECUTION_HOST_ID } as const
+
+/** A document preview's read of `path`, with the authority its preview holds, all host paths. */
+export type HostPathDocPreviewTarget = HostPathFileTarget & {
+  boundaryPath: string
+  entryPath: string
+  implicitRootPath: string | null
+  authorizedRootPaths: readonly string[]
+}
 
 export class RuntimeFileCommandsWithHostPathFiles extends RuntimeFileCommandsWithCreateFileExplorerDirNoClobber {
   async readHostPathFile(target: HostPathFileTarget): Promise<RuntimeHostPathFileReadResult> {
@@ -68,6 +86,36 @@ export class RuntimeFileCommandsWithHostPathFiles extends RuntimeFileCommandsWit
       await resolveHostPathTarget(target, this.host.requireStore(), 'read'),
       offset,
       length
+    )
+  }
+
+  async readHostPathDocPreviewFile(
+    target: HostPathDocPreviewTarget,
+    maxContentBytes?: number
+  ): Promise<DocPreviewFileAccessResult> {
+    const store = this.host.requireStore()
+    // Why every path and not the file alone: each names this host's disk, so each must be one it
+    // serves by path. The reader then confines the file to the entry or an approved directory.
+    const authorize = (path: string): Promise<string> =>
+      resolveHostPathTarget({ path, access: target.access }, store, 'read')
+    const [boundaryPath, entryPath, targetPath, implicitRootPath, authorizedRootPaths] =
+      await Promise.all([
+        authorize(target.boundaryPath),
+        authorize(target.entryPath),
+        authorize(target.path),
+        target.implicitRootPath === null ? null : authorize(target.implicitRootPath),
+        Promise.all(target.authorizedRootPaths.map(authorize))
+      ])
+    return assertPreviewWithinTransportBudget(
+      await readAuthorizedDocPreviewFile({
+        boundaryPath,
+        entryPath,
+        implicitRootPath,
+        authorizedRootPaths,
+        targetPath,
+        ...docPreviewReadLimits(maxContentBytes)
+      }),
+      maxContentBytes
     )
   }
 

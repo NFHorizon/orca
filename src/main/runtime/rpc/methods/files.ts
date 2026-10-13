@@ -100,15 +100,21 @@ export const FILE_METHODS = [
     name: 'files.readDocPreview',
     permission: 'workspace',
     params: DocPreviewFileRead,
-    handler: async (params, { runtime, clientKind, requestId }) =>
-      runtime.readDocPreviewFile(
+    handler: async (params, ctx) => {
+      const budget = remoteFileContentBudget(ctx.clientKind, ctx.requestId)
+      if (params.path !== undefined) {
+        assertHostPathServedHere(ctx)
+        return ctx.runtime.readHostPathDocPreviewFile(params, budget)
+      }
+      return ctx.runtime.readDocPreviewFile(
         params.worktree,
         params.relativePath,
         params.entryRelativePath,
         params.implicitRootRelativePath,
         params.authorizedRootRelativePaths,
-        remoteFileContentBudget(clientKind, requestId)
+        budget
       )
+    }
   }),
   defineMethod({
     name: 'files.resolveTerminalPath',

@@ -60,11 +60,24 @@ export const FileOpenDiff = FileOpenTab.extend({
   staged: z.boolean().optional()
 })
 
-export const DocPreviewFileRead = FileOpen.extend({
-  entryRelativePath: z.string().min(1),
-  implicitRootRelativePath: z.string().nullable(),
-  authorizedRootRelativePaths: z.array(z.string())
-})
+/**
+ * `files.readDocPreview`: the document's paths relative to its workspace, or each absolute on the
+ * host. `boundaryPath` is the preview's request base, which the workspace form takes to be the
+ * workspace itself; `path` is the file read.
+ */
+export const DocPreviewFileRead = workspaceOrHostPathTarget(
+  FileOpen.extend({
+    entryRelativePath: z.string().min(1),
+    implicitRootRelativePath: z.string().nullable(),
+    authorizedRootRelativePaths: z.array(z.string())
+  }),
+  HostPathTarget.extend({
+    boundaryPath: z.string({ error: 'Missing boundary path' }).min(1, 'Missing boundary path'),
+    entryPath: z.string({ error: 'Missing entry path' }).min(1, 'Missing entry path'),
+    implicitRootPath: z.string().nullable(),
+    authorizedRootPaths: z.array(z.string())
+  })
+)
 
 export const FileTreePath = WorktreeSelector.extend({
   followSymlinks: z.boolean().optional(),

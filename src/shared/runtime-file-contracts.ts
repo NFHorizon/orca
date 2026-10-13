@@ -71,6 +71,18 @@ export type RuntimeNativeChatFileContext = {
 export const TERMINAL_PATH_CROSS_WORKSPACE_RUNTIME_CAPABILITY =
   'files.resolve-terminal-path.cross-workspace.v1' as const
 
+// Why: an older host refuses a file named by `path` as a missing worktree. A host advertising this
+// serves `{path, access?}` on files.read, readPreview, readChunk, stat, write and readDocPreview,
+// and files.read's chat-visual kind. Which paths it reaches is its own rule: today its workspaces
+// and its chat scratch folder; widening that is a host rule change under this same capability.
+export const FILES_HOST_PATH_RUNTIME_CAPABILITY = 'files.host-path.v1' as const
+
+export const RUNTIME_FILE_CAPABILITIES = [
+  'files.pathsExist',
+  TERMINAL_PATH_CROSS_WORKSPACE_RUNTIME_CAPABILITY,
+  FILES_HOST_PATH_RUNTIME_CAPABILITY
+] as const
+
 export type RuntimeTerminalPathResolution = {
   worktree: string
   relativePath: string | null
