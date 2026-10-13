@@ -149,11 +149,60 @@ test('a managed terminal path link cannot switch to a desktop workspace at the s
       .locator('[data-file-explorer-row]')
       .filter({ hasText: 'OWNER_SUBDIRECTORY' })
       .click({ button: 'right' })
+    const diag = async (label: string) => {
+      const client = await page.evaluate(() => {
+        const s = window.__store?.getState()
+        const wt = s?.activeWorktreeId ?? ''
+        const tabs = (s?.tabsByWorktree?.[wt] ?? []).map((t) => [t.id, t.ptyId])
+        const active = s?.activeTabIdByWorktree?.[wt] ?? s?.activeTabId
+        const panes = [...(window.__paneManagers?.entries() ?? [])].map(([id, m]) => [
+          id,
+          m.getPanes().map((p) => p.container?.dataset?.ptyId ?? null)
+        ])
+        const layouts = Object.fromEntries(
+          (s?.tabsByWorktree?.[wt] ?? []).map((t) => [
+            t.id,
+            s?.terminalLayoutsByTabId?.[t.id]?.ptyIdsByLeafId
+          ])
+        )
+        return { wt, active, tabs, panes, layouts }
+      })
+      const host = await serverCall(page, environmentId, 'session.tabs.list', {
+        worktree: `id:${seeded.worktreeId}`
+      }).catch((error) => String(error))
+      const hostRows = (
+        host as {
+          result?: {
+            tabs?: { id: string; parentTabId?: string; ptyId?: string }[]
+            tabGroups?: unknown
+          }
+        }
+      )?.result
+      console.log(
+        `[diag ${label} ${Date.now() % 100000}]`,
+        JSON.stringify({
+          client,
+          host: hostRows
+            ? { tabs: hostRows.tabs?.map((t) => [t.id, t.ptyId]), groups: hostRows.tabGroups }
+            : host
+        })
+      )
+    }
+    await diag('before-open')
     await page.getByRole('menuitem', { name: 'Open in Terminal', exact: true }).click()
-    await waitForActivePanePtyId(page, 30_000)
+    for (let i = 0; i < 6; i++) {
+      await diag(`open+${i}`)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    const diagPty = await waitForActivePanePtyId(page, 30_000)
+    console.log('[diag active pty]', diagPty)
     await focusActiveTerminalInput(page)
     await page.keyboard.insertText('pwd; cat TERMINAL_OWNER.txt')
     await page.keyboard.press('Enter')
+    for (let i = 0; i < 6; i++) {
+      await diag(`typed+${i}`)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
     await expect
       .poll(() => getTerminalContent(page), { timeout: 30_000 })
       .toContain('REMOTE_TERMINAL_DIRECTORY_OWNER')
