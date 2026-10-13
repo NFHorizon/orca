@@ -71,8 +71,17 @@ export async function sweepNativeChatVisualsFolders(
     nativeChatScratchRootFor(deps.stateDirectory),
     legacyNativeChatVisualsRootFor(deps.stateDirectory)
   ]) {
-    for (const entry of await listFolders(root)) {
-      entries.push({ root, entry })
+    try {
+      for (const entry of await listFolders(root)) {
+        entries.push({ root, entry })
+      }
+    } catch (error) {
+      // One unreadable root must not keep the other's folders forever.
+      deps.logger.warn('native-chat visuals root could not be listed', {
+        scope: 'nativeChatVisuals.sweep',
+        root,
+        error
+      })
     }
   }
   const held = deps.listHeldSessionIds()

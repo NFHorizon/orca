@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -225,6 +233,33 @@ describe('the chat scratch folder sweep', () => {
     symlinkSync(elsewhere, legacyNativeChatVisualsRootFor(state))
     await sweepNativeChatVisualsFolders(deps(state, []))
     expect(existsSync(join(elsewhere, 'a'.repeat(32)))).toBe(true)
+  })
+
+  // chmod cannot make a folder unreadable on Windows or to root.
+  const unreadableIt = process.platform === 'win32' || process.getuid?.() === 0 ? it.skip : it
+  unreadableIt.each([
+    ['the pre-rename root', legacyNativeChatVisualsRootFor, visualsFor],
+    ['the current root', nativeChatScratchRootFor, legacyVisualsFor]
+  ])('logs %s when it cannot be listed and still sweeps the other', async (_, broken, other) => {
+    const state = stateDirectory()
+    const brokenRoot = broken(state)
+    mkdirSync(brokenRoot, { recursive: true })
+    const orphan = other(state, 'chat-deleted')
+    const sweep = deps(state, [])
+    chmodSync(brokenRoot, 0o000)
+    try {
+      await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({
+        removed: 1,
+        failed: 0
+      })
+    } finally {
+      chmodSync(brokenRoot, 0o700)
+    }
+    expect(existsSync(orphan)).toBe(false)
+    expect(sweep.logger.warn).toHaveBeenCalledWith(
+      'native-chat visuals root could not be listed',
+      expect.objectContaining({ scope: 'nativeChatVisuals.sweep', root: brokenRoot })
+    )
   })
 
   it('takes one verdict snapshot per run', async () => {
