@@ -27,8 +27,9 @@ export async function stopStructuredAgentSessionBackgroundWork(
   input: StructuredAgentSessionBackgroundStopInput,
   atRest: () => boolean
 ): Promise<{ cancelled: boolean; stillRunning?: true }> {
+  const children = input.childWork?.()
   // Captured before the stop goes out: its acknowledgement may end only these runs.
-  const targets = agentChildWorkStopTargets(input.childWork?.(), input.taskId)
+  const targets = agentChildWorkStopTargets(children, input.taskId)
   const acknowledged: AgentChildWorkStopAcknowledgement[] = []
   // Nothing listed has a stop to send; an agent without a stop route would refuse even none.
   const background =
@@ -57,6 +58,10 @@ export async function stopStructuredAgentSessionBackgroundWork(
   if (input.unlisted?.present() && atRest()) {
     await input.unlisted.stop()
     return { cancelled: true }
+  }
+  // A list the host could not read proves no task ended: unconfirmed, never "nothing to stop".
+  if (input.childWork && children === undefined) {
+    throw new Error('the background task list could not be read')
   }
   return { cancelled: background?.cancelled === true }
 }
