@@ -8,7 +8,12 @@ import {
   AGENT_SESSION_REPEATED_STOP_RUNTIME_CAPABILITY
 } from '../../../src/shared/protocol-version'
 import { FILES_HOST_PATH_RUNTIME_CAPABILITY } from '../../../src/shared/runtime-file-contracts'
-import { structuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
+import type { RpcClient } from '../transport/rpc-client'
+import {
+  lastStructuredAgentSessionHostSupport,
+  rememberStructuredAgentSessionHostSupport,
+  structuredAgentSessionHostSupport
+} from './mobile-structured-agent-session-host-support'
 
 describe('structuredAgentSessionHostSupport', () => {
   it('reads each structured-session feature from the host capability list', () => {
@@ -44,5 +49,20 @@ describe('structuredAgentSessionHostSupport', () => {
       ...none,
       hostPathFiles: true
     })
+  })
+
+  it("keeps each client's last probe answer until the next one replaces it", () => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only the client's identity is read.
+    const client = {} as RpcClient
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only the client's identity is read.
+    const otherClient = {} as RpcClient
+    expect(lastStructuredAgentSessionHostSupport(client)).toBeNull()
+    const capable = structuredAgentSessionHostSupport([FILES_HOST_PATH_RUNTIME_CAPABILITY])
+    rememberStructuredAgentSessionHostSupport(client, capable)
+    expect(lastStructuredAgentSessionHostSupport(client)).toBe(capable)
+    expect(lastStructuredAgentSessionHostSupport(otherClient)).toBeNull()
+    const older = structuredAgentSessionHostSupport([])
+    rememberStructuredAgentSessionHostSupport(client, older)
+    expect(lastStructuredAgentSessionHostSupport(client)).toBe(older)
   })
 })

@@ -1,6 +1,9 @@
 import { useMemo } from 'react'
 import type { RpcClient } from '../transport/rpc-client'
-import type { StructuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
+import {
+  lastStructuredAgentSessionHostSupport,
+  type StructuredAgentSessionHostSupport
+} from './mobile-structured-agent-session-host-support'
 import type { MobileNativeChatVisualSource } from './mobile-native-chat-visual-read'
 import { useMobileStructuredSessionStatusValue } from './use-mobile-structured-session-status-value'
 
@@ -14,7 +17,11 @@ export function useMobileNativeChatVisualSource(args: {
   sessionId: string | null
   hostSupport: StructuredAgentSessionHostSupport | null
 }): MobileNativeChatVisualSource | null {
-  const { client, sessionId, hostSupport } = args
+  const { client, sessionId } = args
+  // Support is unknown while reconnecting; the host's last answer holds until the probe answers
+  // again, so a shown visual is not read again through the session-scoped reader.
+  const hostSupport =
+    args.hostSupport ?? (client ? lastStructuredAgentSessionHostSupport(client) : null)
   const scratchDirectory = useMobileStructuredSessionStatusValue(
     {
       client,
