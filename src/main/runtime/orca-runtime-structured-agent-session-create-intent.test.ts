@@ -306,6 +306,7 @@ describe('adopting a conversation recorded outside Orca', () => {
       const accountHome = join(root, 'account', 'agent')
       const ambientData = join(root, 'ambient-data')
       const launchData = join(root, 'launch-data')
+      const workspaceCwd = join(root, 'workspace')
       const sessionId = '0198c2a4-7d1e-7c3a-9a4b-1f2e3d4c5b6a'
       const sessionFile = join(
         launchData,
@@ -313,14 +314,18 @@ describe('adopting a conversation recorded outside Orca', () => {
         'profiles',
         'configured',
         'sessions',
-        '--repo-orca--',
+        '-workspace',
         `2026-10-12T00-00-00-000Z_${sessionId}.jsonl`
       )
       await mkdir(join(ambientData, 'omp', 'profiles', 'ambient'), { recursive: true })
       await mkdir(join(launchData, 'omp', 'profiles', 'configured'), { recursive: true })
       await mkdir(join(root, 'account'), { recursive: true })
+      await mkdir(workspaceCwd, { recursive: true })
       await mkdir(dirname(sessionFile), { recursive: true })
-      await writeFile(sessionFile, `${JSON.stringify({ type: 'session', id: sessionId })}\n`)
+      await writeFile(
+        sessionFile,
+        `${JSON.stringify({ type: 'session', id: sessionId, cwd: workspaceCwd })}\n`
+      )
       vi.stubEnv('XDG_DATA_HOME', ambientData)
       vi.stubEnv('OMP_PROFILE', 'ambient')
       const runtime = new OrcaRuntimeService(
@@ -350,7 +355,7 @@ describe('adopting a conversation recorded outside Orca', () => {
           workspaceKind: 'git-worktree' as const
         })),
         resolveRuntimeFileTarget: vi.fn(async () => ({
-          worktree: { path: join(root, 'workspace') }
+          worktree: { path: workspaceCwd }
         }))
       })
 

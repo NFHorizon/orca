@@ -6,6 +6,7 @@ import { CLI_CONVERSATION_ADOPTING_AGENTS } from '../../shared/structured-agent-
 import {
   clearGrokSessionPathLookupCacheForTests,
   findGrokChatHistoryBySessionId,
+  grokEncodedCwdDirName,
   GROK_SESSION_GROUP_SCAN_MAX_ENTRIES,
   setGrokSessionDirectoryOpenerForTests
 } from '../../shared/grok-session-paths'
@@ -21,6 +22,7 @@ let root: string | null = null
 
 afterEach(async () => {
   vi.unstubAllEnvs()
+  vi.restoreAllMocks()
   clearGrokSessionPathLookupCacheForTests()
   if (root) {
     await rm(root, { recursive: true, force: true })
@@ -103,30 +105,37 @@ describe('which chats can take over a CLI conversation', () => {
   })
 })
 
-it('finds a Grok conversation in the current workspace beyond the generic group cap', async () => {
-  root = await mkdtemp(join(tmpdir(), 'orca-grok-adopt-cwd-'))
-  const workspaceCwd = join(root, 'workspace')
-  const recorded = await RECORDED.grok(root, 'CURRENT-WORKSPACE')
-  const cwdRecorded = join(root, 'sessions', encodeURIComponent(workspaceCwd), SESSION_ID)
-  await mkdir(cwdRecorded, { recursive: true })
-  const currentFile = join(cwdRecorded, 'chat_history.jsonl')
-  await writeFile(currentFile, await readFile(recorded))
-  setGrokSessionDirectoryOpenerForTests(async () => ({
-    async *[Symbol.asyncIterator]() {
-      for (let index = 0; index <= GROK_SESSION_GROUP_SCAN_MAX_ENTRIES; index += 1) {
-        yield {
-          name: `earlier-${index}`,
-          isDirectory: () => true,
-          isSymbolicLink: () => false
+it.each([false, true])(
+  'finds a Grok cwd beyond the generic cap (long path: %s)',
+  async (longPath) => {
+    root = await mkdtemp(join(tmpdir(), 'orca-grok-adopt-cwd-'))
+    const workspaceCwd = join(root, longPath ? '中'.repeat(80) : 'workspace')
+    const recorded = await RECORDED.grok(root, 'CURRENT-WORKSPACE')
+    const group = grokEncodedCwdDirName(workspaceCwd)
+    if (!group) {
+      throw new Error('Expected a CLI cwd group')
+    }
+    const cwdRecorded = join(root, 'sessions', group, SESSION_ID)
+    await mkdir(cwdRecorded, { recursive: true })
+    const currentFile = join(cwdRecorded, 'chat_history.jsonl')
+    await writeFile(currentFile, await readFile(recorded))
+    setGrokSessionDirectoryOpenerForTests(async () => ({
+      async *[Symbol.asyncIterator]() {
+        for (let index = 0; index <= GROK_SESSION_GROUP_SCAN_MAX_ENTRIES; index += 1) {
+          yield {
+            name: `earlier-${index}`,
+            isDirectory: () => true,
+            isSymbolicLink: () => false
+          }
         }
-      }
-    },
-    close: async () => {}
-  }))
+      },
+      close: async () => {}
+    }))
 
-  expect(await findGrokChatHistoryBySessionId(join(root, 'sessions'), SESSION_ID)).toBeNull()
-  expect((await adopt('grok', root, process.env, workspaceCwd)).transcriptPath).toBe(currentFile)
-})
+    expect(await findGrokChatHistoryBySessionId(join(root, 'sessions'), SESSION_ID)).toBeNull()
+    expect((await adopt('grok', root, process.env, workspaceCwd)).transcriptPath).toBe(currentFile)
+  }
+)
 
 it('looks up OMP history under the configured launch XDG and profile root', async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-omp-adopt-env-'))
@@ -177,6 +186,38 @@ it('uses the configured OMP profile when the ambient profile names another sessi
     OMP_CODING_AGENT_DIR: ''
   }
   expect((await adopt('omp', accountHome, launchEnv)).transcriptPath).toBe(launchFile)
+})
+
+it.each(['win32', 'linux', 'darwin'] as const)(
+  'follows the child home precedence for a named OMP profile on %s',
+  async (platform) => {
+    root = await mkdtemp(join(tmpdir(), 'orca-omp-adopt-home-'))
+    const home = join(root, 'home')
+    const userProfile = join(root, 'user-profile')
+    const profile = 'work'
+    const homeFile = await RECORDED.omp(join(home, '.omp', 'profiles', profile, 'agent'), 'HOME')
+    const userProfileFile = await RECORDED.omp(
+      join(userProfile, '.omp', 'profiles', profile, 'agent'),
+      'USERPROFILE'
+    )
+    vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
+
+    const adoption = await adopt('omp', join(root, 'account'), {
+      HOME: home,
+      USERPROFILE: userProfile,
+      OMP_PROFILE: profile
+    })
+
+    expect(adoption.transcriptPath).toBe(platform === 'win32' ? userProfileFile : homeFile)
+  }
+)
+
+it('refuses OMP history from another workspace without creating a blank chat', async () => {
+  root = await mkdtemp(join(tmpdir(), 'orca-omp-adopt-other-cwd-'))
+  await RECORDED.omp(root, 'OTHER-WORKSPACE')
+  await expect(adopt('omp', root, process.env, '/another/workspace')).rejects.toMatchObject({
+    refusal: { code: 'agent_session_identity_required' }
+  })
 })
 
 describe.each(['grok', 'omp'] as const)('adopting a %s CLI conversation', (agent) => {
