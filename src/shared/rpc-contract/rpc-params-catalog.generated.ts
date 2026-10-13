@@ -191,6 +191,7 @@ import {
 } from './files-mutation-params'
 import {
   DocPreviewFileRead,
+  FileContentReadTarget,
   FileListAll,
   FileOpenDiff,
   FileOpenTab,
@@ -839,7 +840,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'files.open': FileOpenTab,
   'files.openDiff': FileOpenDiff,
   'files.pathsExist': FilePathsExist,
-  'files.read': FileReadTarget,
+  'files.read': FileContentReadTarget,
   'files.readChunk': FileReadChunk,
   'files.readDir': FileTreePath,
   'files.readDocPreview': DocPreviewFileRead,

@@ -4,7 +4,15 @@ import type { Worktree } from '../../../shared/worktree/types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 import { useAppStore } from '@/store'
-import { editorTabDocumentFolderAccess, editorTabFileAccess } from './local-file-access'
+import {
+  chatImageAccess,
+  chatVisualAccess,
+  documentFolderAccess,
+  documentResourceAccess,
+  editorTabDocumentFolderAccess,
+  editorTabFileAccess,
+  userNamedFileAccess
+} from './local-file-access'
 
 const initialState = useAppStore.getInitialState()
 
@@ -216,5 +224,21 @@ describe('editorTabDocumentFolderAccess', () => {
     ]
   ])('grants no folder writes to %s', (_label, file) => {
     expect(editorTabDocumentFolderAccess(useAppStore.getState(), file)).toBeUndefined()
+  })
+})
+
+describe('access constructors', () => {
+  it('declare each kind main recognises', () => {
+    expect(userNamedFileAccess()).toEqual({ kind: 'user-file' })
+    expect(chatImageAccess()).toEqual({ kind: 'chat-image' })
+    expect(chatVisualAccess()).toEqual({ kind: 'chat-visual' })
+    expect(documentFolderAccess('/docs/a.md')).toEqual({
+      kind: 'document-folder',
+      documentPath: '/docs/a.md'
+    })
+    expect(documentResourceAccess('/docs/a.md')).toEqual({
+      kind: 'document-resource',
+      documentPath: '/docs/a.md'
+    })
   })
 })

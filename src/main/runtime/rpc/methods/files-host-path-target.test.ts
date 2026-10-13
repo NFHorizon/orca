@@ -167,3 +167,39 @@ describe('file methods route each target form to its own command', () => {
     })
   })
 })
+
+describe('a chat-visual access', () => {
+  const VISUAL = { path: '/state/chat-scratch/0123/chart.html', access: { kind: 'chat-visual' } }
+
+  it('reaches the host-path read of files.read, through the same host gate', async () => {
+    const { fns, dispatcher } = makeRuntime()
+    await expect(
+      dispatcher.dispatch(makeRequest('files.read', VISUAL, 'local'))
+    ).resolves.toMatchObject({ ok: true, result: 'host-read' })
+    expect(fns.readHostPathFile).toHaveBeenCalledWith(expect.objectContaining(VISUAL))
+
+    const tagged = makeRuntime()
+    await expect(
+      tagged.dispatcher.dispatch(makeRequest('files.read', VISUAL, 'ssh:box'))
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'invalid_argument', message: HOST_PATH_NOT_SERVED_HERE_MESSAGE }
+    })
+    expect(tagged.fns.readHostPathFile).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['files.readPreview', {}],
+    ['files.readChunk', { offset: 0, length: 8 }],
+    ['files.stat', {}],
+    ['files.write', SAVE]
+  ] as const)('%s refuses it before reaching the runtime', async (method, fields) => {
+    const { fns, dispatcher } = makeRuntime()
+    await expect(
+      dispatcher.dispatch(makeRequest(method, { ...VISUAL, ...fields }))
+    ).resolves.toMatchObject({ ok: false, error: { code: 'invalid_argument' } })
+    for (const fn of Object.values(fns)) {
+      expect(fn).not.toHaveBeenCalled()
+    }
+  })
+})

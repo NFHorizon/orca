@@ -192,6 +192,9 @@ function parseLocalFileAccess(access: unknown): LocalFileAccess | undefined {
   if (access.kind === 'chat-image') {
     return { kind: 'chat-image' }
   }
+  if (access.kind === 'chat-visual') {
+    return { kind: 'chat-visual' }
+  }
   if (
     access.kind === 'document-folder' &&
     'documentPath' in access &&
@@ -238,6 +241,23 @@ function declaredKindRule(
       return operation === 'import-into'
         ? (targetPath) => resolveDocumentFolderPath(targetPath, fileAccess.documentPath)
         : undefined
+    case 'chat-visual':
+      return undefined
+  }
+}
+
+/** A read naming a chat visual, which only `readChatVisualAccessFile` serves. */
+export function isChatVisualFileAccess(access: unknown): boolean {
+  return parseLocalFileAccess(access)?.kind === 'chat-visual'
+}
+
+/**
+ * Why refused before any root check: a chat loads its visual by itself, so the kind must never
+ * reach a project file, and no operation but its own protected read serves it.
+ */
+function refuseChatVisualAccess(access: LocalFileAccess | undefined): void {
+  if (access?.kind === 'chat-visual') {
+    throw new Error(PATH_ACCESS_DENIED_MESSAGE)
   }
 }
 
@@ -256,6 +276,7 @@ export async function resolveLocalRequestPathInScope(
   // Why the leaf is kept: a rename acts on a link itself, never on what it points to.
   const options = { preserveSymlink: operation === 'rename-from' || operation === 'rename-to' }
   const parsedAccess = parseLocalFileAccess(access)
+  refuseChatVisualAccess(parsedAccess)
   const fileAccess =
     parsedAccess && rootScope.accessKinds.has(parsedAccess.kind) ? parsedAccess : undefined
   const kindRule = fileAccess && declaredKindRule(fileAccess, operation, store, rootScope)
@@ -314,6 +335,7 @@ export async function resolveLocalRenamePaths(
   store: Store
 ): Promise<{ from: string; to: string }> {
   const fileAccess = parseLocalFileAccess(access)
+  refuseChatVisualAccess(fileAccess)
   const renameAccess =
     fileAccess?.kind === 'document-folder' && isOpenedDocument(oldPath, fileAccess.documentPath)
       ? USER_FILE_ACCESS

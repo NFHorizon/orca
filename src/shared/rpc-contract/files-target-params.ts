@@ -28,6 +28,17 @@ export const HostPathTarget = z.object({
   access: HostPathFileAccess.optional()
 })
 
+/**
+ * What a `files.read` by path may declare: also `chat-visual`, a chat's own visual, which the host
+ * serves only from its chat scratch root. Content reads only; no other method accepts it.
+ */
+export const HostPathReadAccess = z.union([
+  HostPathFileAccess,
+  z.object({ kind: z.literal('chat-visual') })
+])
+
+export const HostPathReadTarget = HostPathTarget.extend({ access: HostPathReadAccess.optional() })
+
 export const MIXED_FILE_TARGET_MESSAGE =
   'Name a file by worktree and relativePath, or by path, not both'
 

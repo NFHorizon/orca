@@ -6,6 +6,7 @@ import type {
   RuntimeHostPathFileReadResult
 } from '../../shared/runtime-file-contracts'
 import { readLocalFileRange } from '../ipc/filesystem/local-file-range-read'
+import { readChatVisualAccessFile } from '../native-chat/native-chat-visual-access-read'
 import type { LocalRequestOperation } from '../ipc/local-file-access-resolution'
 import type { LocalFilesystemProvider } from '../providers/local-filesystem-provider'
 import { toRuntimeFileStatResult } from './runtime-file-command-access'
@@ -22,6 +23,16 @@ const THIS_HOST = { executionHostId: LOCAL_EXECUTION_HOST_ID } as const
 
 export class RuntimeFileCommandsWithHostPathFiles extends RuntimeFileCommandsWithCreateFileExplorerDirNoClobber {
   async readHostPathFile(target: HostPathFileTarget): Promise<RuntimeHostPathFileReadResult> {
+    // Why before every root check: a chat visual is read from this host's scratch root only.
+    if (target.access?.kind === 'chat-visual') {
+      const content = await readChatVisualAccessFile(target.path)
+      return {
+        path: target.path,
+        content,
+        truncated: false,
+        byteLength: Buffer.byteLength(content, 'utf8')
+      }
+    }
     const store = this.host.requireStore()
     if (isMobileBinaryPath(target.path)) {
       throw new Error('binary_file')

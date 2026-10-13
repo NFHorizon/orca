@@ -17,6 +17,7 @@ import {
   FileOpenTab,
   FilePathSearch,
   FileReadChunk,
+  FileContentReadTarget,
   FileReadTarget,
   FileSearch,
   FileStatTarget,
@@ -86,7 +87,7 @@ export const FILE_METHODS = [
   defineMethod({
     name: 'files.read',
     permission: 'workspace',
-    params: FileReadTarget,
+    params: FileContentReadTarget,
     handler: async (params, ctx) => {
       if (params.path === undefined) {
         return ctx.runtime.readMobileFile(params.worktree, params.relativePath)

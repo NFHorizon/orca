@@ -4,6 +4,7 @@ import { QUICK_OPEN_REMOTE_QUERY_MAX_CODE_UNITS } from '../quick-open-path-searc
 import { RUNTIME_NAVIGATION_TARGETS } from '../runtime-navigation'
 import {
   FileOpen,
+  HostPathReadTarget,
   HostPathTarget,
   WorktreeSelector,
   workspaceOrHostPathTarget
@@ -96,8 +97,11 @@ export const FileReadChunk = workspaceOrHostPathTarget(
   HostPathTarget.extend(FileChunkRange)
 )
 
-/** `files.read` and `files.readPreview`. */
+/** `files.readPreview`. */
 export const FileReadTarget = workspaceOrHostPathTarget(FileOpen, HostPathTarget)
+
+/** `files.read`: the one method a chat-visual access may name. */
+export const FileContentReadTarget = workspaceOrHostPathTarget(FileOpen, HostPathReadTarget)
 
 export const FileSearch = WorktreeSelector.extend({
   query: z

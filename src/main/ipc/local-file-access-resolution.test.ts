@@ -470,3 +470,32 @@ describe('chat-image requests', () => {
     }
   )
 })
+
+describe('chat-visual requests', () => {
+  const CHAT_VISUAL = { kind: 'chat-visual' } as const
+  const OPERATIONS: LocalRequestOperation[] = [
+    'read',
+    'write',
+    'rename-from',
+    'rename-to',
+    'import-into'
+  ]
+
+  it('are refused for every operation before the project check, even inside a project', async () => {
+    const store = makeStore({ repoPaths: [project] })
+    const inProject = join(project, 'chart.html')
+    await writeFile(inProject, '<p>chart</p>')
+    for (const operation of OPERATIONS) {
+      await expect(resolveLocalRequestPath(inProject, undefined, store, operation)).resolves.toBe(
+        inProject
+      )
+      await expect(
+        resolveLocalRequestPath(inProject, CHAT_VISUAL, store, operation),
+        operation
+      ).rejects.toThrow('Access denied')
+    }
+    await expect(
+      resolveLocalRenamePaths(inProject, join(project, 'moved.html'), CHAT_VISUAL, store)
+    ).rejects.toThrow('Access denied')
+  })
+})

@@ -102,6 +102,19 @@ describe.each(METHODS)('%s target', (method) => {
       expect(firstMessage(schema, { path: '/srv/a.md', access, ...fields })).not.toBeNull()
     }
   })
+
+  it(`${method === 'files.read' ? 'accepts' : 'refuses'} a chat-visual access`, () => {
+    const visual = { path: '/srv/chat-scratch/0123/chart.html', access: { kind: 'chat-visual' } }
+    for (const schema of parsers(method)) {
+      const message = firstMessage(schema, { ...visual, ...fields })
+      if (method === 'files.read') {
+        expect(message).toBeNull()
+        expect(schema.parse(visual)).toEqual(visual)
+      } else {
+        expect(message).not.toBeNull()
+      }
+    }
+  })
 })
 
 describe('method fields keep their meaning on the host-path form', () => {
