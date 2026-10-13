@@ -106,20 +106,25 @@ describe('one resolver, each caller with its own default roots', () => {
 
   it('gives every declared kind only the host roots on the host', async () => {
     const outsideDocument = join(outside, 'file.md')
-    const kinds: [unknown, 'read' | 'write' | 'import-into'][] = [
-      [{ kind: 'user-file' }, 'read'],
-      [{ kind: 'user-file' }, 'write'],
-      [{ kind: 'chat-image' }, 'read'],
-      [{ kind: 'document-resource', documentPath: outsideDocument }, 'read'],
-      [{ kind: 'document-folder', documentPath: outsideDocument }, 'import-into']
+    const outsideImage = join(outside, 'shot.png')
+    await writeFile(outsideImage, 'png')
+    // Each target is one the desktop reaches through that kind, so the host refusal is the kind's.
+    const kinds: [unknown, 'read' | 'write' | 'import-into', string][] = [
+      [{ kind: 'user-file' }, 'read', outsideDocument],
+      [{ kind: 'user-file' }, 'write', outsideDocument],
+      [{ kind: 'chat-image' }, 'read', outsideImage],
+      [{ kind: 'document-resource', documentPath: outsideDocument }, 'read', outsideImage],
+      [{ kind: 'document-folder', documentPath: outsideDocument }, 'import-into', outsideImage]
     ]
-    for (const [access, operation] of kinds) {
-      const onHost = (target: string) =>
-        outcome(
-          resolveLocalRequestPathInScope(target, access, store, operation, HOST_FILE_ROOT_SCOPE)
-        )
-      expect(await onHost(join(outside, 'file.md')), JSON.stringify(access)).toBe('denied')
-      expect(await onHost(join(folderWorkspace, 'file.md')), JSON.stringify(access)).toBe('ok')
+    for (const [access, operation, outsideTarget] of kinds) {
+      const inScope = (scope: LocalFileRootScope, target: string) =>
+        outcome(resolveLocalRequestPathInScope(target, access, store, operation, scope))
+      const label = `${JSON.stringify(access)} ${operation}`
+      expect(await inScope(DESKTOP_FILE_ROOT_SCOPE, outsideTarget), label).toBe('ok')
+      expect(await inScope(HOST_FILE_ROOT_SCOPE, outsideTarget), label).toBe('denied')
+      expect(await inScope(HOST_FILE_ROOT_SCOPE, join(folderWorkspace, 'file.md')), label).toBe(
+        'ok'
+      )
     }
   })
 
