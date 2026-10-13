@@ -1,6 +1,7 @@
 import { defineMethod, defineStreamingMethod } from '../core'
 import { runFileWatchStream } from './file-watch-stream-lifecycle'
 import { FILE_MUTATION_METHODS } from './files-mutation-methods'
+import { assertHostPathServedHere } from './files-host-path-owner'
 import {
   assertDirListingWithinRemoteBudget,
   remoteFileContentBudget
@@ -86,10 +87,13 @@ export const FILE_METHODS = [
     name: 'files.read',
     permission: 'workspace',
     params: FileReadTarget,
-    handler: async (params, { runtime }) =>
-      params.path === undefined
-        ? runtime.readMobileFile(params.worktree, params.relativePath)
-        : runtime.readHostPathFile(params)
+    handler: async (params, ctx) => {
+      if (params.path === undefined) {
+        return ctx.runtime.readMobileFile(params.worktree, params.relativePath)
+      }
+      assertHostPathServedHere(ctx)
+      return ctx.runtime.readHostPathFile(params)
+    }
   }),
   defineMethod({
     name: 'files.readDocPreview',
@@ -125,9 +129,11 @@ export const FILE_METHODS = [
     name: 'files.readPreview',
     permission: 'workspace',
     params: FileReadTarget,
-    handler: async (params, { runtime, clientKind, requestId }) => {
+    handler: async (params, ctx) => {
+      const { runtime, clientKind, requestId } = ctx
       const budget = remoteFileContentBudget(clientKind, requestId)
       if (params.path !== undefined) {
+        assertHostPathServedHere(ctx)
         return runtime.readHostPathFilePreview(params, budget)
       }
       return budget === undefined
@@ -139,15 +145,18 @@ export const FILE_METHODS = [
     name: 'files.readChunk',
     permission: 'workspace',
     params: FileReadChunk,
-    handler: async (params, { runtime }) =>
-      params.path === undefined
-        ? runtime.readFileExplorerChunk(
-            params.worktree,
-            params.relativePath,
-            params.offset,
-            params.length
-          )
-        : runtime.readHostPathFileChunk(params, params.offset, params.length)
+    handler: async (params, ctx) => {
+      if (params.path === undefined) {
+        return ctx.runtime.readFileExplorerChunk(
+          params.worktree,
+          params.relativePath,
+          params.offset,
+          params.length
+        )
+      }
+      assertHostPathServedHere(ctx)
+      return ctx.runtime.readHostPathFileChunk(params, params.offset, params.length)
+    }
   }),
   defineMethod({
     name: 'files.readDir',
@@ -223,10 +232,13 @@ export const FILE_METHODS = [
     name: 'files.stat',
     permission: 'workspace',
     params: FileStatTarget,
-    handler: async (params, { runtime }) =>
-      params.path === undefined
-        ? runtime.statRuntimeFile(params.worktree, params.relativePath)
-        : runtime.statHostPathFile(params)
+    handler: async (params, ctx) => {
+      if (params.path === undefined) {
+        return ctx.runtime.statRuntimeFile(params.worktree, params.relativePath)
+      }
+      assertHostPathServedHere(ctx)
+      return ctx.runtime.statHostPathFile(params)
+    }
   }),
   defineStreamingMethod({
     name: 'files.watch',

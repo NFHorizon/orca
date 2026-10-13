@@ -1,13 +1,20 @@
 import '../unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { MIXED_FILE_TARGET_MESSAGE } from '../../../../shared/rpc-contract/files-target-params'
+import { HOST_PATH_NOT_SERVED_HERE_MESSAGE } from './files-host-path-owner'
 import type { RpcRequest } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { FILE_METHODS } from './files'
 
-function makeRequest(method: string, params?: unknown): RpcRequest {
-  return { id: 'req-1', authToken: 'tok', method, params }
+function makeRequest(method: string, params?: unknown, executionHost?: unknown): RpcRequest {
+  return {
+    id: 'req-1',
+    authToken: 'tok',
+    method,
+    params,
+    ...(executionHost === undefined ? {} : { executionHost })
+  }
 }
 
 function makeRuntime() {
@@ -109,4 +116,54 @@ describe('file methods route each target form to its own command', () => {
       }
     }
   )
+
+  describe('a path is served only by the host that owns it', () => {
+    const METHOD_FIELDS = [
+      ['files.read', {}],
+      ['files.readPreview', {}],
+      ['files.readChunk', { offset: 4, length: 8 }],
+      ['files.stat', {}],
+      ['files.write', SAVE]
+    ] as const
+
+    it.each(METHOD_FIELDS)(
+      '%s refuses a path tagged for another host without touching this disk',
+      async (method, fields) => {
+        // An SSH target, a server this process did not relay to, or an unreadable tag.
+        for (const executionHost of ['ssh:box', 'runtime:env-1', 'nonsense', 42]) {
+          const { fns, dispatcher } = makeRuntime()
+          const response = await dispatcher.dispatch(
+            makeRequest(method, { ...HOST_PATH, ...fields }, executionHost)
+          )
+          expect(response, String(executionHost)).toMatchObject({
+            ok: false,
+            error: { code: 'invalid_argument', message: HOST_PATH_NOT_SERVED_HERE_MESSAGE }
+          })
+          for (const fn of Object.values(fns)) {
+            expect(fn).not.toHaveBeenCalled()
+          }
+        }
+      }
+    )
+
+    it.each(METHOD_FIELDS)(
+      '%s serves an untagged or local-tagged path here',
+      async (method, fields) => {
+        for (const executionHost of [undefined, 'local']) {
+          const { dispatcher } = makeRuntime()
+          await expect(
+            dispatcher.dispatch(makeRequest(method, { ...HOST_PATH, ...fields }, executionHost))
+          ).resolves.toMatchObject({ ok: true })
+        }
+      }
+    )
+
+    it('leaves the workspace form to its workspace, whatever the tag', async () => {
+      const { fns, dispatcher } = makeRuntime()
+      await expect(
+        dispatcher.dispatch(makeRequest('files.read', WORKSPACE, 'ssh:box'))
+      ).resolves.toMatchObject({ ok: true, result: 'workspace-read' })
+      expect(fns.readMobileFile).toHaveBeenCalledWith('id:wt-1', 'a.md')
+    })
+  })
 })
