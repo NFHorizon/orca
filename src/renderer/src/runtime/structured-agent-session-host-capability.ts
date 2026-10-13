@@ -23,19 +23,42 @@ export function structuredAgentSessionHostKey(target: RuntimeClientTarget): stri
  *  evidence about the host. */
 export type StructuredAgentSessionHostCapabilityState = 'unknown' | 'supported' | 'unsupported'
 
+/** A host capability answer, and whether the probe that may change it is still running. */
+export type StructuredAgentSessionHostCapabilityProbe = {
+  state: StructuredAgentSessionHostCapabilityState
+  /** Names the probe now running or last settled; a new probe starts on each regained contact. */
+  probe: string
+  /** From a probe's start until it settles; a failed probe has settled. */
+  probing: boolean
+}
+
 /** Whether the session's host advertises `capability`. A failed probe stays `unknown` and a remote
  *  host is asked again each time this client regains contact with it. */
 export function useStructuredAgentSessionHostCapabilityState(
   target: RuntimeClientTarget,
   capability: RuntimeCapability
 ): StructuredAgentSessionHostCapabilityState {
+  return useStructuredAgentSessionHostCapabilityProbe(target, capability).state
+}
+
+/** {@link useStructuredAgentSessionHostCapabilityState}, also saying whether its probe still runs. */
+export function useStructuredAgentSessionHostCapabilityProbe(
+  target: RuntimeClientTarget,
+  capability: RuntimeCapability
+): StructuredAgentSessionHostCapabilityProbe {
   const key = structuredAgentSessionHostKey(target)
-  const [answer, setAnswer] = useState<{
-    key: string
-    state: StructuredAgentSessionHostCapabilityState
-  }>(() => ({ key, state: target.kind === 'local' ? localCapabilityState(capability) : 'unknown' }))
   const environmentId = target.kind === 'environment' ? target.environmentId : null
   const [contact, setContact] = useState(0)
+  const probe = `${key}|${capability}|${contact}`
+  const [answer, setAnswer] = useState<{
+    key: string
+    probe: string | null
+    state: StructuredAgentSessionHostCapabilityState
+  }>(() => ({
+    key,
+    probe: null,
+    state: target.kind === 'local' ? localCapabilityState(capability) : 'unknown'
+  }))
   useEffect(() => {
     if (environmentId === null) {
       return
@@ -44,26 +67,30 @@ export function useStructuredAgentSessionHostCapabilityState(
   }, [environmentId])
   useEffect(() => {
     let cancelled = false
-    const probe: Promise<StructuredAgentSessionHostCapabilityState> =
+    const probing: Promise<StructuredAgentSessionHostCapabilityState> =
       environmentId === null
         ? ensureLocalRuntimeCapabilities().then(() => localCapabilityState(capability))
         : runtimeEnvironmentSupportsCapability(environmentId, capability).then((supported) =>
             supported ? 'supported' : 'unsupported'
           )
-    void probe
+    void probing
       .catch((): StructuredAgentSessionHostCapabilityState => 'unknown')
       .then((state) => {
         if (!cancelled) {
           setAnswer((current) =>
-            current.key === key && current.state === state ? current : { key, state }
+            current.key === key && current.state === state && current.probe === probe
+              ? current
+              : { key, probe, state }
           )
         }
       })
     return () => {
       cancelled = true
     }
-  }, [capability, contact, environmentId, key])
-  return answer.key === key ? answer.state : 'unknown'
+  }, [capability, environmentId, key, probe])
+  return answer.key === key
+    ? { state: answer.state, probe, probing: answer.probe !== probe }
+    : { state: 'unknown', probe, probing: true }
 }
 
 function localCapabilityState(

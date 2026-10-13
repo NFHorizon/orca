@@ -4,13 +4,14 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
   type ReactNode
 } from 'react'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import { FILES_HOST_PATH_RUNTIME_CAPABILITY } from '../../../../shared/runtime-file-contracts'
 import { getStructuredAgentSessionStatusFeed } from '@/runtime/structured-agent-session-status-feed'
-import { useStructuredAgentSessionHostCapabilityState } from '@/runtime/structured-agent-session-host-capability'
+import { useStructuredAgentSessionHostCapabilityProbe } from '@/runtime/structured-agent-session-host-capability'
 import { subscribeRuntimeHostContactRegained } from '@/runtime/runtime-host-contact-regained'
 import { useNativeChatTabOwnerWorktreeId } from './use-native-chat-tab-owner'
 import {
@@ -27,13 +28,13 @@ export type NativeChatVisualOwner = {
 
 /**
  * How the chat's visuals are read: as files in its scratch folder on its host, through the older
- * per-session endpoint (a host without path reads or without a published folder), or not yet
- * known (the host has not said whether it reads by path).
+ * per-session endpoint (no published folder, or a host not known to read by path), or not yet
+ * (a probe of whether the host reads by path is still running).
  */
 export type NativeChatVisualReadRoute =
   | { kind: 'file'; scratchDirectory: string }
   | { kind: 'legacy' }
-  | { kind: 'pending' }
+  | { kind: 'pending'; scratchDirectory: string }
 
 /** Kept apart from the owner so a change here re-renders a visual without remounting its frame. */
 export type NativeChatVisualReading = {
@@ -45,7 +46,6 @@ export const NativeChatVisualOwnerContext = createContext<NativeChatVisualOwner 
 export const NativeChatVisualReadingContext = createContext<NativeChatVisualReading | null>(null)
 
 const LEGACY_ROUTE: NativeChatVisualReadRoute = { kind: 'legacy' }
-const PENDING_ROUTE: NativeChatVisualReadRoute = { kind: 'pending' }
 
 /** Null outside a structured chat's transcript, where no visual can be read. */
 export function useNativeChatVisualOwner(): NativeChatVisualOwner | null {
@@ -84,22 +84,45 @@ function useNativeChatScratchDirectory(
   )
 }
 
+/** How long a visual waits on a running capability probe before using the older endpoint. */
+export const NATIVE_CHAT_VISUAL_PROBE_WAIT_MS = 15_000
+
+/** True while the host's capability probe runs, for at most {@link NATIVE_CHAT_VISUAL_PROBE_WAIT_MS}. */
+function useWaitingOnProbe(probe: string, probing: boolean): boolean {
+  const [expiredProbe, setExpiredProbe] = useState<string | null>(null)
+  useEffect(() => {
+    if (!probing) {
+      return
+    }
+    const timer = setTimeout(() => setExpiredProbe(probe), NATIVE_CHAT_VISUAL_PROBE_WAIT_MS)
+    return () => clearTimeout(timer)
+  }, [probe, probing])
+  return probing && expiredProbe !== probe
+}
+
 function useNativeChatVisualReadRoute(
   sessionId: string,
   target: RuntimeClientTarget
 ): NativeChatVisualReadRoute {
   const scratchDirectory = useNativeChatScratchDirectory(sessionId, target)
-  const hostPathFiles = useStructuredAgentSessionHostCapabilityState(
+  const hostPathFiles = useStructuredAgentSessionHostCapabilityProbe(
     target,
     FILES_HOST_PATH_RUNTIME_CAPABILITY
   )
+  const waiting = useWaitingOnProbe(hostPathFiles.probe, hostPathFiles.probing)
+  const local = target.kind === 'local'
   return useMemo(() => {
-    if (scratchDirectory === null || hostPathFiles === 'unsupported') {
+    if (scratchDirectory === null) {
       return LEGACY_ROUTE
     }
-    // Why wait on `unknown`: reading through the older endpoint first would read every visual twice.
-    return hostPathFiles === 'supported' ? { kind: 'file', scratchDirectory } : PENDING_ROUTE
-  }, [hostPathFiles, scratchDirectory])
+    // Why local reads at once: this build's own desktop IPC always serves the chat-visual kind.
+    if (local || hostPathFiles.state === 'supported') {
+      return { kind: 'file', scratchDirectory }
+    }
+    // Why wait only on a running probe: reading through the older endpoint first would read every
+    // visual twice, but a failed or silent probe says nothing, and that endpoint works on every host.
+    return waiting ? { kind: 'pending', scratchDirectory } : LEGACY_ROUTE
+  }, [hostPathFiles.state, local, scratchDirectory, waiting])
 }
 
 /** Names the structured chat below it as the owner of the visuals its replies show. */

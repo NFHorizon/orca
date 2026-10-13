@@ -146,9 +146,7 @@ export function readNativeChatVisual(
 }
 
 /** Whether a failed read may succeed if asked again shortly: contact restored, or the file landing. */
-export function isRetryableNativeChatVisualFailure(
-  reason: AgentSessionVisualReadError | 'unavailable'
-): boolean {
+export function isRetryableNativeChatVisualFailure(reason: string): boolean {
   return reason === 'unavailable' || reason === 'not_found'
 }
 

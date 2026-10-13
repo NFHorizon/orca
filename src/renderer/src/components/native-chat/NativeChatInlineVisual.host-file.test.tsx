@@ -167,11 +167,35 @@ describe('inline visuals read as files on the chat host', () => {
   })
 
   it('reads nothing while the host has not said how it reads files', async () => {
-    const { container } = render(chat({ kind: 'local' }, reading({ kind: 'pending' })))
+    const pending = reading({ kind: 'pending', scratchDirectory: LOCAL_FOLDER })
+    const { container } = render(chat({ kind: 'local' }, pending))
     await Promise.resolve()
     expect(container.querySelector('[role="status"]')).not.toBeNull()
     expect(readFile).not.toHaveBeenCalled()
     expect(callRuntimeRpc).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['by path', fileRoute(LOCAL_FOLDER)],
+    ['through the older endpoint', { kind: 'legacy' as const }]
+  ])('paints a page cached %s while the route is still being learned', async (_, route) => {
+    callRuntimeRpc.mockResolvedValue({
+      ok: true,
+      revision: 'r1',
+      sizeBytes: 3,
+      html: '<p>first</p>'
+    })
+    const first = render(chat({ kind: 'local' }, reading(route)))
+    await waitFor(() => expect(frameSource(first.container)).toContain('<p>first</p>'))
+    cleanup()
+    const reads = readFile.mock.calls.length + callRuntimeRpc.mock.calls.length
+
+    // The windowed transcript remounts the reply while the host's answer is still pending.
+    const pending = reading({ kind: 'pending', scratchDirectory: LOCAL_FOLDER })
+    const { container } = render(chat({ kind: 'local' }, pending))
+    expect(frameSource(container)).toContain('<p>first</p>')
+    await Promise.resolve()
+    expect(readFile.mock.calls.length + callRuntimeRpc.mock.calls.length).toBe(reads)
   })
 
   it('shows a rewritten file when the turn ends, and keeps the frame when nothing changed', async () => {

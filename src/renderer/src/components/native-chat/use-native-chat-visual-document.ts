@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import {
+  isRetryableNativeChatVisualFailure,
   peekCachedNativeChatVisual,
   readNativeChatVisual,
   type NativeChatVisualIdentity
@@ -19,12 +20,15 @@ export type NativeChatVisualDocumentState =
 
 /**
  * Where a visual's page comes from: its file on the chat's host, read again after each
- * `freshAfter` mark; the older per-session endpoint; or nowhere yet (the route is still unknown).
+ * `freshAfter` mark; the older per-session endpoint; or neither yet (the route is still being
+ * learned), which reads nothing but shows a page either reader already cached.
  */
 export type NativeChatVisualSource =
   | { kind: 'file'; file: NativeChatVisualFile; freshAfter: number }
   | { kind: 'legacy'; identity: NativeChatVisualIdentity }
-  | { kind: 'pending' }
+  | { kind: 'pending'; file: NativeChatVisualFile; identity: NativeChatVisualIdentity }
+
+type ReadableNativeChatVisualSource = Exclude<NativeChatVisualSource, { kind: 'pending' }>
 
 type VisualReadOutcome = { ok: true; page: NativeChatVisualPage } | { ok: false; reason: string }
 
@@ -49,12 +53,13 @@ function peekSource(source: NativeChatVisualSource): NativeChatVisualPage | null
   if (source.kind === 'file') {
     return peekNativeChatVisualFile(source.file)
   }
-  return source.kind === 'legacy' ? peekCachedNativeChatVisual(source.identity) : null
+  if (source.kind === 'legacy') {
+    return peekCachedNativeChatVisual(source.identity)
+  }
+  return peekNativeChatVisualFile(source.file) ?? peekCachedNativeChatVisual(source.identity)
 }
 
-async function readSource(
-  source: Exclude<NativeChatVisualSource, { kind: 'pending' }>
-): Promise<VisualReadOutcome> {
+async function readSource(source: ReadableNativeChatVisualSource): Promise<VisualReadOutcome> {
   if (source.kind === 'file') {
     return readNativeChatVisualFile(source.file, { startedAfter: source.freshAfter })
   }
@@ -73,7 +78,7 @@ function showPage(
 }
 
 async function loadWithRetries(
-  source: Exclude<NativeChatVisualSource, { kind: 'pending' }>,
+  source: ReadableNativeChatVisualSource,
   signal: AbortSignal,
   setState: (
     update: (shown: NativeChatVisualDocumentState) => NativeChatVisualDocumentState
@@ -89,9 +94,7 @@ async function loadWithRetries(
       return
     }
     const delay = NATIVE_CHAT_VISUAL_RETRY_DELAYS_MS[retry]
-    // Contact restored or the file landing may yet answer; any other refusal is final.
-    const retryable = outcome.reason === 'unavailable' || outcome.reason === 'not_found'
-    if (!retryable || delay === undefined) {
+    if (!isRetryableNativeChatVisualFailure(outcome.reason) || delay === undefined) {
       // Why keep a shown document on `unavailable`: losing contact says nothing about the file.
       setState((shown) =>
         shown.status === 'ready' && outcome.reason === 'unavailable'
@@ -106,19 +109,20 @@ async function loadWithRetries(
   }
 }
 
-function sourceFromParts(
+/** The source the effect reads, rebuilt from its primitive parts; null while the route is pending. */
+function readableSourceFromParts(
   kind: NativeChatVisualSource['kind'],
   environmentId: string | null,
   name: string,
   sessionId: string,
   freshAfter: number
-): NativeChatVisualSource {
+): ReadableNativeChatVisualSource | null {
   const target: RuntimeClientTarget =
     environmentId === null ? { kind: 'local' } : { kind: 'environment', environmentId }
   if (kind === 'file') {
     return { kind, file: { target, path: name }, freshAfter }
   }
-  return kind === 'legacy' ? { kind, identity: { target, sessionId, file: name } } : { kind }
+  return kind === 'legacy' ? { kind, identity: { target, sessionId, file: name } } : null
 }
 
 /**
@@ -136,14 +140,10 @@ export function useNativeChatVisualDocument(
     return cached ? { status: 'ready', document: cached } : { status: 'loading' }
   })
   const kind = source.kind
-  const environmentId =
-    source.kind === 'file'
-      ? targetEnvironmentId(source.file.target)
-      : source.kind === 'legacy'
-        ? targetEnvironmentId(source.identity.target)
-        : null
-  const name =
-    source.kind === 'file' ? source.file.path : source.kind === 'legacy' ? source.identity.file : ''
+  const environmentId = targetEnvironmentId(
+    source.kind === 'legacy' ? source.identity.target : source.file.target
+  )
+  const name = source.kind === 'legacy' ? source.identity.file : source.file.path
   const sessionId = source.kind === 'legacy' ? source.identity.sessionId : ''
   const freshAfter = source.kind === 'file' ? source.freshAfter : 0
 
@@ -151,9 +151,9 @@ export function useNativeChatVisualDocument(
     if (!enabled) {
       return
     }
-    const sourceNow = sourceFromParts(kind, environmentId, name, sessionId, freshAfter)
+    const sourceNow = readableSourceFromParts(kind, environmentId, name, sessionId, freshAfter)
     // Why keep the state on `pending`: the route is unknown, which says nothing about the page.
-    if (sourceNow.kind === 'pending') {
+    if (sourceNow === null) {
       return
     }
     const abort = new AbortController()
