@@ -1,8 +1,6 @@
 import { detectLanguage } from '@/lib/language-detect'
 import { getConnectionId } from '@/lib/connection-context'
-import { isPathInsideWorktree, toWorktreeRelativePath } from '@/lib/terminal-links'
 import { useAppStore } from '@/store'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
 import {
   normalizeBrowserNavigationUrl,
   redactKagiSessionToken
@@ -21,8 +19,7 @@ import type {
   BrowserTabPageState
 } from '../describe-page/browser-page-types'
 import type { MutableRefObject } from 'react'
-import { statUserOpenedPath } from '@/lib/user-opened-local-path'
-import { requireRuntimeTargetForFileOwner } from '@/lib/file-owner-runtime-target'
+import { resolveBrowserFileEditorPath } from './browser-file-editor-open'
 
 export type NavigateBrowserPageToUrlArgs = {
   url: string
@@ -98,28 +95,13 @@ export function navigateBrowserPageToUrl({
       }
 
       try {
-        // Why getKnownWorktreeById: folder and floating workspaces are absent from allWorktrees().
-        const activeWorktree = store.getKnownWorktreeById(worktreeId)
-        const fileContext: RuntimeFileOperationArgs = {
-          target: requireRuntimeTargetForFileOwner(store, worktreeId, undefined),
+        const { isDirectory, relativePath } = await resolveBrowserFileEditorPath(
           worktreeId,
-          worktreePath: activeWorktree?.path,
-          connectionId: undefined
-        }
-        const stat = await statUserOpenedPath(fileContext, notebookPath)
-        if (stat.isDirectory) {
+          notebookPath
+        )
+        if (isDirectory) {
           navigateBrowserUrl(url)
           return
-        }
-
-        let relativePath = notebookPath
-        // Why: a project link out of the project keeps its absolute path, so it reads as user-named.
-        if (
-          activeWorktree?.path &&
-          !stat.escapesWorktree &&
-          isPathInsideWorktree(notebookPath, activeWorktree.path)
-        ) {
-          relativePath = toWorktreeRelativePath(notebookPath, activeWorktree.path) ?? notebookPath
         }
 
         // Why: file:// notebooks in the browser are otherwise rendered as raw JSON by Chromium.

@@ -11,7 +11,14 @@ import { BrowserReloadControl } from './browser-reload-control'
 import { BrowserToolbarMenu } from './BrowserToolbarMenu'
 import { SshEgressIndicator } from './browser-egress-indicator'
 import { destroyPersistentWebview } from '../host-guest/webview-registry'
-import { readBrowserHtmlArtifactRequest } from '../describe-page/browser-artifact-upload'
+import {
+  getShareableBrowserArtifactFile,
+  readBrowserHtmlArtifactRequest
+} from '../describe-page/browser-artifact-upload'
+import {
+  canOpenBrowserFileInWorkspaceEditor,
+  openBrowserFileSource
+} from '../navigate/browser-file-editor-open'
 import type { GrabModeHook } from '../annotate/useGrabMode'
 import type {
   BrowserPageConversionOrigin,
@@ -114,6 +121,21 @@ export function BrowserPageToolbar({
       : browserTourStep === 1
         ? ('annotate' as const)
         : undefined
+  const workspaceOwnedHere = useAppStore((state) =>
+    canOpenBrowserFileInWorkspaceEditor(state, worktreeId)
+  )
+  const sourceFilePath = workspaceOwnedHere
+    ? (getShareableBrowserArtifactFile(currentBrowserUrl)?.filePath ?? null)
+    : null
+  const openDevTools = (): void => void window.api.browser.openDevTools({ browserPageId })
+  // Why: a local HTML page's source is its file, so the source button opens it like the document
+  // preview does; devtools stay one click away in the overflow menu.
+  const sourceActions = sourceFilePath
+    ? {
+        onOpenSource: () => void openBrowserFileSource(worktreeId, sourceFilePath),
+        onOpenDevTools: openDevTools
+      }
+    : null
 
   return (
     <BrowserChromeToolbar
@@ -204,13 +226,24 @@ export function BrowserPageToolbar({
             }
           : undefined
       }
-      viewSource={{
-        onSelect: () => void window.api.browser.openDevTools({ browserPageId }),
-        label: translate(
-          'auto.components.browser.pane.BrowserPane.ec75d0c412',
-          'Open browser devtools'
-        )
-      }}
+      viewSource={
+        sourceActions
+          ? {
+              onSelect: sourceActions.onOpenSource,
+              label: translate(
+                'auto.components.editor.HtmlDocPreview.openSourceControl',
+                'Open source file'
+              ),
+              alreadyInOverflowMenu: true
+            }
+          : {
+              onSelect: openDevTools,
+              label: translate(
+                'auto.components.browser.pane.BrowserPane.ec75d0c412',
+                'Open browser devtools'
+              )
+            }
+      }
       openExternal={{
         onSelect: () => {
           if (!externalUrl) {
@@ -224,6 +257,7 @@ export function BrowserPageToolbar({
         ),
         disabled: !externalUrl
       }}
+      // oxlint-disable-next-line react-doctor/no-unstable-nested-components -- BrowserChromeToolbar calls this as a function, so BrowserToolbarMenu stays one stable component.
       overflowMenu={(overflow) => (
         <BrowserToolbarMenu
           currentProfileId={sessionProfileId}
@@ -232,6 +266,7 @@ export function BrowserPageToolbar({
           viewportPresetId={viewportPresetId}
           onDestroyWebview={() => destroyPersistentWebview(browserPageId)}
           isActive={isActive}
+          sourceActions={sourceActions}
           overflow={overflow}
         />
       )}

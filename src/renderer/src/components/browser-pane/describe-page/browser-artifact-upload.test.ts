@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ARTIFACT_MAX_CONTENT_BYTES } from '../../../../../shared/artifacts'
 import type { ArtifactPublishPreparationError } from '@/components/artifacts/artifact-publish-flow'
 import {
+  browserFileUrlToAbsolutePath,
   getShareableBrowserArtifactFile,
   readBrowserHtmlArtifactRequest
 } from './browser-artifact-upload'
@@ -34,6 +35,39 @@ describe('browser artifact upload', () => {
     })
     expect(getShareableBrowserArtifactFile('https://example.com/report.html')).toBeNull()
     expect(getShareableBrowserArtifactFile('file:///tmp/report.md')).toBeNull()
+  })
+
+  it.each([
+    ['spaces', 'file:///tmp/Design%20Review.html', '/tmp/Design Review.html'],
+    ['percent-encoded characters', 'file:///tmp/100%25%20%23done.html', '/tmp/100% #done.html'],
+    ['non-ASCII names', 'file:///tmp/r%C3%A9sum%C3%A9-%E5%9B%BE.html', '/tmp/résumé-图.html'],
+    ['raw non-ASCII names', 'file:///tmp/résumé.html', '/tmp/résumé.html'],
+    ['a query and fragment', 'file:///tmp/report.html?tab=2#summary', '/tmp/report.html'],
+    [
+      'a Windows drive path',
+      'file:///C:/Users/Ana%20B/report.html',
+      'C:\\Users\\Ana B\\report.html'
+    ],
+    ['a localhost Windows drive path', 'file://localhost/D:/site/index.htm', 'D:\\site\\index.htm'],
+    [
+      'a UNC share',
+      'file://server/share/My%20Docs/report.html',
+      '\\\\server\\share\\My Docs\\report.html'
+    ],
+    [
+      'a WSL share',
+      'file://wsl.localhost/Ubuntu/home/ana/page.html',
+      '\\\\wsl.localhost\\Ubuntu\\home\\ana\\page.html'
+    ]
+  ])('converts a file URL with %s to its path', (_case, url, filePath) => {
+    expect(browserFileUrlToAbsolutePath(url)).toBe(filePath)
+  })
+
+  it('names no file for non-file or malformed URLs', () => {
+    expect(browserFileUrlToAbsolutePath('https://example.com/report.html')).toBeNull()
+    expect(browserFileUrlToAbsolutePath('about:blank')).toBeNull()
+    expect(browserFileUrlToAbsolutePath('file:///tmp/%E0%A4%A.html')).toBeNull()
+    expect(browserFileUrlToAbsolutePath('not a url')).toBeNull()
   })
 
   it('reads the backing file through the authorized filesystem API', async () => {

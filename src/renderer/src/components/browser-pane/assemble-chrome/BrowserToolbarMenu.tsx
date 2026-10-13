@@ -9,7 +9,10 @@ import {
   browserViewportPresetToOverride,
   getBrowserViewportPreset
 } from '../../../../../shared/browser-viewport-presets'
-import { BrowserToolbarMenuDropdown } from './browser-toolbar-menu-dropdown'
+import {
+  BrowserToolbarMenuDropdown,
+  type BrowserPageSourceActions
+} from './browser-toolbar-menu-dropdown'
 import { BrowserToolbarProfileDialogs } from './browser-toolbar-profile-dialogs'
 import { translate } from '@/i18n/i18n'
 import type { BrowserChromeOverflowMenuProps } from './browser-chrome-folded-tools'
@@ -21,6 +24,7 @@ type BrowserToolbarMenuProps = {
   viewportPresetId: BrowserViewportPresetId | null
   onDestroyWebview: () => void
   isActive: boolean
+  sourceActions?: BrowserPageSourceActions | null
   overflow: BrowserChromeOverflowMenuProps
 }
 
@@ -31,6 +35,7 @@ export function BrowserToolbarMenu({
   viewportPresetId,
   onDestroyWebview,
   isActive,
+  sourceActions,
   overflow
 }: BrowserToolbarMenuProps): React.JSX.Element {
   const browserSessionProfiles = useAppStore((s) => s.browserSessionProfiles)
@@ -244,6 +249,7 @@ export function BrowserToolbarMenu({
         onImportFromFile={() => void handleImportFromFile()}
         viewportPresetId={viewportPresetId}
         onApplyViewportPreset={applyViewportPreset}
+        sourceActions={sourceActions}
         overflow={overflow}
       />
 
