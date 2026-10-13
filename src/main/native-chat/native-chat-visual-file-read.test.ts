@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { NATIVE_CHAT_VISUAL_MAX_BYTES } from '../../shared/native-chat-visual-directive'
-import { nativeChatVisualsFolderFor } from './native-chat-visuals-folder'
+import { nativeChatScratchFolderFor, nativeChatScratchRootFor } from './native-chat-scratch-folder'
 import { nativeChatVisualRevision, readNativeChatVisualFile } from './native-chat-visual-file-read'
 
 const posixIt = process.platform === 'win32' ? it.skip : it
@@ -14,22 +14,12 @@ let folder: string
 
 beforeEach(async () => {
   stateDirectory = await mkdtemp(join(tmpdir(), 'orca-visual-read-'))
-  folder = nativeChatVisualsFolderFor(stateDirectory, 'session-alpha')
+  folder = nativeChatScratchFolderFor(stateDirectory, 'session-alpha')
   await mkdir(folder, { recursive: true })
 })
 
 afterEach(async () => {
   await rm(stateDirectory, { recursive: true, force: true })
-})
-
-describe('nativeChatVisualsFolderFor', () => {
-  it('places each chat in its own hashed folder under the state directory', () => {
-    const alpha = nativeChatVisualsFolderFor('/state', 'session-alpha')
-    const beta = nativeChatVisualsFolderFor('/state', 'session-beta')
-    expect(alpha).toMatch(/native-chat-visuals[\\/][0-9a-f]{32}$/)
-    expect(alpha.startsWith(join('/state', 'native-chat-visuals'))).toBe(true)
-    expect(alpha).not.toBe(beta)
-  })
 })
 
 describe('readNativeChatVisualFile', () => {
@@ -64,7 +54,7 @@ describe('readNativeChatVisualFile', () => {
       ok: false,
       error: 'not_found'
     })
-    const absent = nativeChatVisualsFolderFor(stateDirectory, 'session-never')
+    const absent = nativeChatScratchFolderFor(stateDirectory, 'session-never')
     expect(await readNativeChatVisualFile(absent, 'chart.html')).toEqual({
       ok: false,
       error: 'not_found'
@@ -83,7 +73,7 @@ describe('readNativeChatVisualFile', () => {
   })
 
   posixIt('refuses a symlink to a sibling chat folder or another workspace', async () => {
-    const sibling = nativeChatVisualsFolderFor(stateDirectory, 'session-beta')
+    const sibling = nativeChatScratchFolderFor(stateDirectory, 'session-beta')
     await mkdir(sibling, { recursive: true })
     await writeFile(join(sibling, 'theirs.html'), '<p>other chat</p>')
     const worktree = join(stateDirectory, 'worktree')
@@ -114,8 +104,8 @@ describe('readNativeChatVisualFile', () => {
     })
   })
 
-  posixIt('refuses when the shared visuals root is a symlink', async () => {
-    const root = join(stateDirectory, 'native-chat-visuals')
+  posixIt('refuses when the shared scratch root is a symlink', async () => {
+    const root = nativeChatScratchRootFor(stateDirectory)
     const moved = join(stateDirectory, 'moved-root')
     await rm(root, { recursive: true })
     await mkdir(join(moved, 'x'), { recursive: true })

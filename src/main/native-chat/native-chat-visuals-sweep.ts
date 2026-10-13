@@ -1,9 +1,10 @@
-// How a chat's visuals folder dies. The host never deletes a chat record, so no deletion event
+// How a chat's scratch folder dies. The host never deletes a chat record, so no deletion event
 // exists to hang cleanup on; instead each folder's life is derived from the records every run:
 //   1. a folder no chat record (readable or not) maps to is removed, so any future record
 //      deletion cleans up for free;
 //   2. a folder whose chat ran in a local workspace this host can prove was removed is removed.
-// Anything unproven is kept. A failure is logged and never blocks anything else.
+// Anything unproven is kept. A failure is logged and never blocks anything else. Folders under the
+// pre-rename root follow the same rules, so they still die once nothing reads them.
 
 import type { Dirent } from 'node:fs'
 import { lstat, readdir, rm } from 'node:fs/promises'
@@ -12,7 +13,11 @@ import type { AgentSessionExecutionLocation } from '../../shared/agent-session-r
 import { isDefinitiveAbsence } from '../../shared/definitive-filesystem-absence'
 import { yieldToEventLoop } from '../../shared/event-loop-yield'
 import type { StructuredAgentSessionLogger } from './agent-session-wire/structured-agent-session-logger'
-import { nativeChatVisualsFolderName, nativeChatVisualsRootFor } from './native-chat-visuals-folder'
+import {
+  legacyNativeChatVisualsRootFor,
+  nativeChatScratchFolderName,
+  nativeChatScratchRootFor
+} from './native-chat-scratch-folder'
 
 /** `removed` only on positive proof from the host that owns the workspace. */
 export type NativeChatVisualsWorkspaceVerdict = 'present' | 'removed' | 'unverifiable'
@@ -59,23 +64,30 @@ export async function sweepNativeChatVisualsFolders(
   isStopped: () => boolean = () => false
 ): Promise<NativeChatVisualsSweepResult> {
   const result = { removed: 0, failed: 0 }
-  const root = nativeChatVisualsRootFor(deps.stateDirectory)
   // Listed before the records are read: a folder is created only after its chat's record, so
   // every folder seen here already has its record in the snapshot below.
-  const entries = await listFolders(root)
+  const entries: { root: string; entry: Dirent }[] = []
+  for (const root of [
+    nativeChatScratchRootFor(deps.stateDirectory),
+    legacyNativeChatVisualsRootFor(deps.stateDirectory)
+  ]) {
+    for (const entry of await listFolders(root)) {
+      entries.push({ root, entry })
+    }
+  }
   const held = deps.listHeldSessionIds()
   if (!held || entries.length === 0) {
     return result
   }
   const sessionByFolder = new Map(
-    held.map((sessionId) => [nativeChatVisualsFolderName(sessionId), sessionId])
+    held.map((sessionId) => [nativeChatScratchFolderName(sessionId), sessionId])
   )
   const remove = deps.remove ?? ((path: string) => rm(path, { recursive: true, force: true }))
   let verdict: ReturnType<NonNullable<NativeChatVisualsSweepDeps['workspaceVerdicts']>> | undefined
   const verdictFor = (location: AgentSessionExecutionLocation) =>
     (verdict ??= deps.workspaceVerdicts?.())?.(location)
   let visited = 0
-  for (const entry of entries) {
+  for (const { root, entry } of entries) {
     if (isStopped() || result.removed + result.failed >= MAX_REMOVALS_PER_RUN) {
       break
     }

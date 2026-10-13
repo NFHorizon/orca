@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { StructuredAgentSessionLogger } from './agent-session-wire/structured-agent-session-logger'
-import { nativeChatVisualsFolderFor, nativeChatVisualsRootFor } from './native-chat-visuals-folder'
+import {
+  legacyNativeChatVisualsRootFor,
+  nativeChatScratchFolderFor,
+  nativeChatScratchFolderName,
+  nativeChatScratchRootFor
+} from './native-chat-scratch-folder'
 import {
   scheduleNativeChatVisualsSweep,
   sweepNativeChatVisualsFolders,
@@ -28,7 +33,14 @@ function stateDirectory(): string {
 }
 
 function visualsFor(state: string, sessionId: string): string {
-  const folder = nativeChatVisualsFolderFor(state, sessionId)
+  const folder = nativeChatScratchFolderFor(state, sessionId)
+  mkdirSync(folder, { recursive: true })
+  writeFileSync(join(folder, 'chart.html'), '<p>chart</p>')
+  return folder
+}
+
+function legacyVisualsFor(state: string, sessionId: string): string {
+  const folder = join(legacyNativeChatVisualsRootFor(state), nativeChatScratchFolderName(sessionId))
   mkdirSync(folder, { recursive: true })
   writeFileSync(join(folder, 'chart.html'), '<p>chart</p>')
   return folder
@@ -57,7 +69,7 @@ function deps(
   }
 }
 
-describe('the visuals folder sweep', () => {
+describe('the chat scratch folder sweep', () => {
   it('removes a folder no chat record maps to and keeps every held chat', async () => {
     const state = stateDirectory()
     const live = visualsFor(state, 'chat-live')
@@ -112,7 +124,7 @@ describe('the visuals folder sweep', () => {
 
   it('never touches entries it did not mint, symlinks included', async () => {
     const state = stateDirectory()
-    const root = nativeChatVisualsRootFor(state)
+    const root = nativeChatScratchRootFor(state)
     mkdirSync(join(root, 'notes'), { recursive: true })
     writeFileSync(join(root, 'f'.repeat(32)), 'a file, not a folder')
     const target = mkdtempSync(join(tmpdir(), 'orca-visuals-target-'))
@@ -168,12 +180,49 @@ describe('the visuals folder sweep', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('touches nothing under a visuals root that is a symlink', async () => {
+  it('touches nothing under a scratch root that is a symlink', async () => {
     const state = stateDirectory()
     const elsewhere = mkdtempSync(join(tmpdir(), 'orca-visuals-elsewhere-'))
     scratch.push(elsewhere)
     mkdirSync(join(elsewhere, 'a'.repeat(32)))
-    symlinkSync(elsewhere, nativeChatVisualsRootFor(state))
+    symlinkSync(elsewhere, nativeChatScratchRootFor(state))
+    await sweepNativeChatVisualsFolders(deps(state, []))
+    expect(existsSync(join(elsewhere, 'a'.repeat(32)))).toBe(true)
+  })
+
+  it('sweeps folders under the pre-rename root by the same rules', async () => {
+    const state = stateDirectory()
+    const live = legacyVisualsFor(state, 'chat-live')
+    const orphan = legacyVisualsFor(state, 'chat-deleted')
+    const removedWorkspace = legacyVisualsFor(state, 'chat-gone')
+    const current = visualsFor(state, 'chat-live')
+    const result = await sweepNativeChatVisualsFolders(
+      deps(state, ['chat-live', 'chat-gone'], { 'ws-chat-gone': 'removed' })
+    )
+    expect(result).toEqual({ removed: 2, failed: 0 })
+    expect(existsSync(live)).toBe(true)
+    expect(existsSync(current)).toBe(true)
+    expect(existsSync(orphan)).toBe(false)
+    expect(existsSync(removedWorkspace)).toBe(false)
+  })
+
+  it('sweeps the pre-rename root when the current one does not exist yet', async () => {
+    const state = stateDirectory()
+    const orphan = legacyVisualsFor(state, 'chat-deleted')
+    await expect(sweepNativeChatVisualsFolders(deps(state, []))).resolves.toEqual({
+      removed: 1,
+      failed: 0
+    })
+    expect(existsSync(orphan)).toBe(false)
+    expect(existsSync(nativeChatScratchRootFor(state))).toBe(false)
+  })
+
+  it('touches nothing under a pre-rename root that is a symlink', async () => {
+    const state = stateDirectory()
+    const elsewhere = mkdtempSync(join(tmpdir(), 'orca-visuals-elsewhere-'))
+    scratch.push(elsewhere)
+    mkdirSync(join(elsewhere, 'a'.repeat(32)))
+    symlinkSync(elsewhere, legacyNativeChatVisualsRootFor(state))
     await sweepNativeChatVisualsFolders(deps(state, []))
     expect(existsSync(join(elsewhere, 'a'.repeat(32)))).toBe(true)
   })
