@@ -30,6 +30,22 @@ export type RuntimeFileReadResult = {
   byteLength: number
 }
 
+/** `files.read` of a host path: the requested path in place of the workspace pair. */
+export type RuntimeHostPathFileReadResult = Omit<
+  RuntimeFileReadResult,
+  'worktree' | 'relativePath'
+> & {
+  path: string
+}
+
+/** `files.stat`, by either target. */
+export type RuntimeFileStatResult = {
+  size: number
+  isDirectory: boolean
+  mtime: number
+  ctime?: number
+}
+
 export type RuntimeTerminalPathOpenTarget =
   | {
       kind: 'worktree-file'

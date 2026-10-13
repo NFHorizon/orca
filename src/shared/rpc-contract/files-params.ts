@@ -2,7 +2,12 @@ import { PATH_EXISTENCE_BATCH_MAX } from '../path-existence-batch'
 import { z } from 'zod'
 import { QUICK_OPEN_REMOTE_QUERY_MAX_CODE_UNITS } from '../quick-open-path-search'
 import { RUNTIME_NAVIGATION_TARGETS } from '../runtime-navigation'
-import { FileOpen, WorktreeSelector } from './files-target-params'
+import {
+  FileOpen,
+  HostPathTarget,
+  WorktreeSelector,
+  workspaceOrHostPathTarget
+} from './files-target-params'
 
 export const FilePathsExist = WorktreeSelector.extend({
   relativePaths: z.array(z.string()).max(PATH_EXISTENCE_BATCH_MAX)
@@ -68,6 +73,8 @@ export const FileTreePath = WorktreeSelector.extend({
     .pipe(z.string())
 })
 
+export const FileStatTarget = workspaceOrHostPathTarget(FileTreePath, HostPathTarget)
+
 export const ServerDirectoryBrowse = z.object({
   path: z
     .unknown()
@@ -75,14 +82,22 @@ export const ServerDirectoryBrowse = z.object({
     .pipe(z.string())
 })
 
-export const FileReadChunk = FileOpen.extend({
+const FileChunkRange = {
   offset: z.number().int().nonnegative(),
   length: z
     .number()
     .int()
     .positive()
     .max(512 * 1024)
-})
+}
+
+export const FileReadChunk = workspaceOrHostPathTarget(
+  FileOpen.extend(FileChunkRange),
+  HostPathTarget.extend(FileChunkRange)
+)
+
+/** `files.read` and `files.readPreview`. */
+export const FileReadTarget = workspaceOrHostPathTarget(FileOpen, HostPathTarget)
 
 export const FileSearch = WorktreeSelector.extend({
   query: z

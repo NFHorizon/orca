@@ -39,12 +39,14 @@ export const FILE_MUTATION_METHODS = [
     permission: 'workspace',
     params: FileWrite,
     handler: async (params, { runtime }) =>
-      runtime.writeFileExplorerFile(
-        params.worktree,
-        params.relativePath,
-        params.content,
-        ...sshMutationArguments(params)
-      )
+      params.path === undefined
+        ? runtime.writeFileExplorerFile(
+            params.worktree,
+            params.relativePath,
+            params.content,
+            ...sshMutationArguments(params)
+          )
+        : runtime.writeHostPathFile(params, params.content, ...sshMutationArguments(params))
   }),
   defineMethod({
     name: 'files.writeBase64',

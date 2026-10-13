@@ -1,6 +1,6 @@
-import { RuntimeFileCommandsWithCreateFileExplorerDirNoClobber } from './runtime-file-commands-create-file-explorer-dir-no-clobber'
+import { RuntimeFileCommandsWithHostPathFiles } from './runtime-file-commands-host-path-files'
 
-export class RuntimeFileCommands extends RuntimeFileCommandsWithCreateFileExplorerDirNoClobber {}
+export class RuntimeFileCommands extends RuntimeFileCommandsWithHostPathFiles {}
 export { RUNTIME_PREVIEWABLE_BINARY_MAX_BYTES } from './runtime-file-commands-mobile-file-list-limit'
 export { WINDOWS_RUNTIME_FILE_WATCH_CLOSE_DEADLINE_MS } from './runtime-file-commands-mobile-file-list-limit'
 export { awaitRuntimeFileWatcherUnsubscribes } from './runtime-file-watcher-leases'

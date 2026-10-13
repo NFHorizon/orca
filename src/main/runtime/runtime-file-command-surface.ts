@@ -32,6 +32,11 @@ type RuntimeFileCommandName =
   | 'listRuntimeMarkdownDocuments'
   | 'pathsExistRuntimeFiles'
   | 'statRuntimeFile'
+  | 'readHostPathFile'
+  | 'readHostPathFilePreview'
+  | 'readHostPathFileChunk'
+  | 'statHostPathFile'
+  | 'writeHostPathFile'
 
 export type RuntimeFileCommandSurface = Pick<RuntimeFileCommands, RuntimeFileCommandName>
 
@@ -70,6 +75,11 @@ export function installRuntimeFileCommandSurface(
     listRuntimeFiles: commands.listRuntimeFiles.bind(commands),
     listRuntimeMarkdownDocuments: commands.listRuntimeMarkdownDocuments.bind(commands),
     pathsExistRuntimeFiles: commands.pathsExistRuntimeFiles.bind(commands),
-    statRuntimeFile: commands.statRuntimeFile.bind(commands)
+    statRuntimeFile: commands.statRuntimeFile.bind(commands),
+    readHostPathFile: commands.readHostPathFile.bind(commands),
+    readHostPathFilePreview: commands.readHostPathFilePreview.bind(commands),
+    readHostPathFileChunk: commands.readHostPathFileChunk.bind(commands),
+    statHostPathFile: commands.statHostPathFile.bind(commands),
+    writeHostPathFile: commands.writeHostPathFile.bind(commands)
   } satisfies RuntimeFileCommandSurface)
 }

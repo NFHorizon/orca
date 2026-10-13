@@ -1,6 +1,8 @@
 import type { Store } from '../persistence'
 import { resolveAuthorizedPath, type ResolveAuthorizedPathOptions } from './filesystem-auth'
 import { getDefaultFloatingWorkspacePath } from './floating-workspace-directory'
+import { nativeChatVisualsRootFor } from '../native-chat/native-chat-visuals-folder'
+import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
 
 /**
  * The roots a local file request may use without a declared access kind, beyond the store's
@@ -19,6 +21,16 @@ export const DESKTOP_FILE_ROOT_SCOPE: LocalFileRootScope = {
 /** Runtime file services (paired and SSH clients reach them through this host): project roots only. */
 export const HOST_FILE_ROOT_SCOPE: LocalFileRootScope = {
   extraRoots: () => []
+}
+
+/**
+ * A runtime request naming a host file by its absolute path: the project roots plus this host's
+ * chat visuals folder, every chat's subfolder included. Separate from `HOST_FILE_ROOT_SCOPE` so
+ * workspace-addressed requests (and their deletes and renames) never reach Orca's own state.
+ */
+export const HOST_PATH_TARGET_ROOT_SCOPE: LocalFileRootScope = {
+  // Why the profile path: chat hosts and their visuals folders open in it on this process.
+  extraRoots: () => [nativeChatVisualsRootFor(getProfileUserDataPath())]
 }
 
 export type ScopedAuthorizedPathOptions = Omit<ResolveAuthorizedPathOptions, 'extraRoots'>

@@ -34,42 +34,10 @@ export class RuntimeFileCommandsWithReadFileExplorerPreview extends RuntimeFileC
     relativePath: string,
     maxContentBytes?: number
   ): Promise<RuntimeFilePreviewResult> {
-    const binaryMaxBytes =
-      maxContentBytes === undefined
-        ? LOCAL_PREVIEWABLE_BINARY_MAX_BYTES
-        : previewableBinaryByteLimit(maxContentBytes)
     const target = await this.resolveFileExplorerPath(worktreeSelector, relativePath)
     requireLocalRuntimeFileRoute(target)
-    // Why: sized by extension instead of a stat round trip.
-    const filePath = await resolveHostAuthorizedPath(target.path, this.host.requireStore())
-    const mimeType = RUNTIME_PREVIEWABLE_BINARY_MIME_TYPES[extname(filePath).toLowerCase()]
-    const maxBytes = mimeType ? binaryMaxBytes : MOBILE_FILE_READ_MAX_BYTES
-    let buffer: Buffer
-    try {
-      buffer = (await readNodeFileWithinLimit(filePath, maxBytes)).buffer
-    } catch (error) {
-      if (error instanceof NodeFileReadTooLargeError) {
-        throw new Error('file_too_large')
-      }
-      throw error
-    }
-    if (mimeType) {
-      return assertPreviewWithinTransportBudget(
-        {
-          content: buffer.toString('base64'),
-          isBinary: true,
-          isImage: true,
-          mimeType
-        },
-        maxContentBytes
-      )
-    }
-
-    if (isBinaryBuffer(buffer)) {
-      return assertPreviewWithinTransportBudget({ content: '', isBinary: true }, maxContentBytes)
-    }
-    return assertPreviewWithinTransportBudget(
-      { content: buffer.toString('utf-8'), isBinary: false },
+    return readAuthorizedFilePreview(
+      await resolveHostAuthorizedPath(target.path, this.host.requireStore()),
       maxContentBytes
     )
   }
@@ -129,4 +97,46 @@ export class RuntimeFileCommandsWithReadFileExplorerPreview extends RuntimeFileC
     const filePath = await resolveHostAuthorizedPath(target.path, this.host.requireStore())
     return readLocalFileRange(filePath, offset, length)
   }
+}
+
+/** The preview of a path this host already authorized: an image as base64, else bounded text. */
+export async function readAuthorizedFilePreview(
+  filePath: string,
+  maxContentBytes?: number
+): Promise<RuntimeFilePreviewResult> {
+  const binaryMaxBytes =
+    maxContentBytes === undefined
+      ? LOCAL_PREVIEWABLE_BINARY_MAX_BYTES
+      : previewableBinaryByteLimit(maxContentBytes)
+  // Why: sized by extension instead of a stat round trip.
+  const mimeType = RUNTIME_PREVIEWABLE_BINARY_MIME_TYPES[extname(filePath).toLowerCase()]
+  const maxBytes = mimeType ? binaryMaxBytes : MOBILE_FILE_READ_MAX_BYTES
+  let buffer: Buffer
+  try {
+    buffer = (await readNodeFileWithinLimit(filePath, maxBytes)).buffer
+  } catch (error) {
+    if (error instanceof NodeFileReadTooLargeError) {
+      throw new Error('file_too_large')
+    }
+    throw error
+  }
+  if (mimeType) {
+    return assertPreviewWithinTransportBudget(
+      {
+        content: buffer.toString('base64'),
+        isBinary: true,
+        isImage: true,
+        mimeType
+      },
+      maxContentBytes
+    )
+  }
+
+  if (isBinaryBuffer(buffer)) {
+    return assertPreviewWithinTransportBudget({ content: '', isBinary: true }, maxContentBytes)
+  }
+  return assertPreviewWithinTransportBudget(
+    { content: buffer.toString('utf-8'), isBinary: false },
+    maxContentBytes
+  )
 }

@@ -6,7 +6,7 @@ import {
   remoteFileContentBudget
 } from './files-remote-content-budget'
 import { limitQuickOpenSearchReplyBySerializedBytes } from '../../../../shared/quick-open-transport-budget'
-import { FileOpen, WorktreeSelector } from '../../../../shared/rpc-contract/files-target-params'
+import { WorktreeSelector } from '../../../../shared/rpc-contract/files-target-params'
 import { FILE_TERMINAL_ARTIFACT_METHODS } from './files-terminal-artifact-methods'
 import {
   FilePathsExist,
@@ -16,7 +16,9 @@ import {
   FileOpenTab,
   FilePathSearch,
   FileReadChunk,
+  FileReadTarget,
   FileSearch,
+  FileStatTarget,
   FileTreePath,
   FileUnwatch,
   ResolveTerminalPath,
@@ -83,9 +85,11 @@ export const FILE_METHODS = [
   defineMethod({
     name: 'files.read',
     permission: 'workspace',
-    params: FileOpen,
+    params: FileReadTarget,
     handler: async (params, { runtime }) =>
-      runtime.readMobileFile(params.worktree, params.relativePath)
+      params.path === undefined
+        ? runtime.readMobileFile(params.worktree, params.relativePath)
+        : runtime.readHostPathFile(params)
   }),
   defineMethod({
     name: 'files.readDocPreview',
@@ -120,9 +124,12 @@ export const FILE_METHODS = [
   defineMethod({
     name: 'files.readPreview',
     permission: 'workspace',
-    params: FileOpen,
+    params: FileReadTarget,
     handler: async (params, { runtime, clientKind, requestId }) => {
       const budget = remoteFileContentBudget(clientKind, requestId)
+      if (params.path !== undefined) {
+        return runtime.readHostPathFilePreview(params, budget)
+      }
       return budget === undefined
         ? runtime.readFileExplorerPreview(params.worktree, params.relativePath)
         : runtime.readFileExplorerPreview(params.worktree, params.relativePath, budget)
@@ -133,12 +140,14 @@ export const FILE_METHODS = [
     permission: 'workspace',
     params: FileReadChunk,
     handler: async (params, { runtime }) =>
-      runtime.readFileExplorerChunk(
-        params.worktree,
-        params.relativePath,
-        params.offset,
-        params.length
-      )
+      params.path === undefined
+        ? runtime.readFileExplorerChunk(
+            params.worktree,
+            params.relativePath,
+            params.offset,
+            params.length
+          )
+        : runtime.readHostPathFileChunk(params, params.offset, params.length)
   }),
   defineMethod({
     name: 'files.readDir',
@@ -213,9 +222,11 @@ export const FILE_METHODS = [
   defineMethod({
     name: 'files.stat',
     permission: 'workspace',
-    params: FileTreePath,
+    params: FileStatTarget,
     handler: async (params, { runtime }) =>
-      runtime.statRuntimeFile(params.worktree, params.relativePath)
+      params.path === undefined
+        ? runtime.statRuntimeFile(params.worktree, params.relativePath)
+        : runtime.statHostPathFile(params)
   }),
   defineStreamingMethod({
     name: 'files.watch',
