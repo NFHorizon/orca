@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY,
   MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION,
@@ -15,6 +15,11 @@ import {
   type RuntimeRpcRequest
 } from '@/runtime/runtime-file-client-test-harness'
 import { createHostPathLinkExistence } from './native-chat-host-path-link-existence'
+
+const store = vi.hoisted(() => ({
+  runtimeStatusByEnvironmentId: new Map<string, { status: unknown }>()
+}))
+vi.mock('@/store', () => ({ useAppStore: { getState: () => store } }))
 
 installRuntimeFileClientEnvironment()
 
@@ -53,8 +58,13 @@ function refuse(message: string) {
   return { id: 'rpc', ok: false, error: { code: 'runtime_error', message }, _meta: {} }
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 beforeEach(async () => {
   servesByPath = true
+  store.runtimeStatusByEnvironmentId = new Map()
   runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeRpcRequest) =>
     args.method === 'status.get'
       ? Promise.resolve(
@@ -126,6 +136,35 @@ describe('a chat link to a file outside the workspace', () => {
     }
 
     expect(runtimeEnvironmentTransportCall).not.toHaveBeenCalled()
+  })
+
+  it('never asks a host the app already shows as unreachable', async () => {
+    await hostAnswered(true)
+    store.runtimeStatusByEnvironmentId.set('env-1', { status: null })
+
+    expect(await createHostPathLinkExistence()(link(HOST_FILE))).toBe(false)
+    expect(runtimeEnvironmentTransportCall).not.toHaveBeenCalled()
+  })
+
+  it('gives every link back to today’s check within one deadline when the host stops answering', async () => {
+    await hostAnswered(true)
+    vi.useFakeTimers()
+    // The host still has a cached capable status, but now answers nothing, status checks included.
+    runtimeEnvironmentTransportCall.mockImplementation(() => new Promise(() => {}))
+    const hasFile = createHostPathLinkExistence()
+    const settled: boolean[] = []
+
+    for (let index = 0; index < 20; index += 1) {
+      void hasFile(link(`/Users/me/notes-${index}.md`)).then((exists) => settled.push(exists))
+    }
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(settled).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(settled).toEqual(Array.from({ length: 20 }, () => false))
+    // Links that waited in the queue past the deadline never reach the host.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(hostCalls('files.stat').length).toBeLessThanOrEqual(4)
   })
 
   it('does not wait for a host that has never answered', async () => {

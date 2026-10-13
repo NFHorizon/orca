@@ -6,7 +6,7 @@ import {
   type RuntimeEnvironmentCallRequest
 } from '@/runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
-import { clearRuntimeHostPathVerdictsForTests } from '@/runtime/runtime-file-address'
+import { clearRuntimeHostPathProbesForTests } from '@/runtime/runtime-file-address'
 import type { TerminalLinkTestDoubles } from './terminal-link-handlers-test-fixtures'
 import { PATH_OUTSIDE_ALLOWED_DIRECTORIES } from '../../../../shared/local-file-access'
 
@@ -55,7 +55,7 @@ export function installTerminalLinkTestEnvironment(doubles: TerminalLinkTestDoub
 
   beforeEach(() => {
     clearRuntimeCompatibilityCacheForTests()
-    clearRuntimeHostPathVerdictsForTests()
+    clearRuntimeHostPathProbesForTests()
     vi.clearAllMocks()
     runtimeEnvironmentTransportCallMock.mockReset()
     hostPathStatMock.mockReset()

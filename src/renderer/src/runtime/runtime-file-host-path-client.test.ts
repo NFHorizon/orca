@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
   FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY,
   MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION,
@@ -15,8 +15,16 @@ import { writeRuntimeFile } from './runtime-file-mutation-client'
 import { runtimePathExists, statRuntimePath } from './runtime-file-metadata-client'
 import { readRuntimeFileRange, statRuntimeReadTarget } from './runtime-file-range-client'
 import { runtimePathsExist } from './runtime-path-existence-batch'
-import { runtimeEnvironmentSupportsCapability } from './runtime-rpc-client'
-import { runtimeEnvironmentServesFilesByPath } from './runtime-file-address'
+import {
+  clearRecentRuntimeCompatibilityFailure,
+  clearRuntimeCompatibilityCache,
+  runtimeEnvironmentSupportsCapability
+} from './runtime-rpc-client'
+import {
+  knownRuntimeEnvironmentServesFilesByPath,
+  runtimeEnvironmentServesFilesByPath
+} from './runtime-file-address'
+import { createCompatibleRuntimeStatusResponse } from './runtime-compatibility-test-fixture'
 import {
   fsAppendDownloadedFileChunk,
   fsFinishDownloadedFile,
@@ -345,17 +353,38 @@ describe('what stays as it was', () => {
     expect(fileCalls()).toEqual([])
   })
 
-  it('uses a stale answer at once and refreshes it in the background', async () => {
-    const now = vi.spyOn(Date, 'now')
-    now.mockReturnValue(1_000)
-    expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(true)
+  it.each([
+    ['a connection check', () => clearRuntimeCompatibilityCache('env-a')],
+    [
+      'a replaced runtime',
+      () => {
+        const replacement = createCompatibleRuntimeStatusResponse('replacement-runtime')
+        if (replacement.ok) {
+          clearRecentRuntimeCompatibilityFailure('env-a', replacement.result)
+        }
+      }
+    ]
+  ])('drops the answer with the shared status on %s', async (_label, reset) => {
     pathServingHosts = new Set()
-    now.mockReturnValue(1_000 + 61_000)
-
-    expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(false)
-    now.mockRestore()
+    // The status was cached by the first answer, so this re-reads it without asking.
+    expect(knownRuntimeEnvironmentServesFilesByPath('env-a')).toBe(false)
+    pathServingHosts = new Set(['env-a'])
+
+    reset()
+
+    expect(knownRuntimeEnvironmentServesFilesByPath('env-a')).toBeUndefined()
+    expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(true)
+  })
+
+  it('does not re-ask an unreachable host within a minute', async () => {
+    runtimeEnvironmentTransportCall.mockRejectedValue(new Error('socket closed'))
+
+    for (let index = 0; index < 5; index += 1) {
+      expect(await runtimeEnvironmentServesFilesByPath('env-a')).toBe(false)
+    }
+
+    expect(runtimeEnvironmentTransportCall).toHaveBeenCalledTimes(1)
   })
 
   it('shows the host’s refusal for a path it does not serve, never this computer’s file', async () => {

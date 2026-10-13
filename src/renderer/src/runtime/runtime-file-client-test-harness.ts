@@ -2,7 +2,7 @@ import { beforeEach, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { clearRuntimeCompatibilityCacheForTests } from './runtime-rpc-client'
 import { replaceRuntimeEnvironmentRevisions } from './runtime-environment-revision'
-import { clearRuntimeHostPathVerdictsForTests } from './runtime-file-address'
+import { clearRuntimeHostPathProbesForTests } from './runtime-file-address'
 import { clearLegacyQuickOpenInventoryCacheForTests } from './runtime-legacy-quick-open-inventory'
 import {
   FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY,
@@ -67,7 +67,7 @@ export function installRuntimeFileClientEnvironment(): void {
   beforeEach(() => {
     delete (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__
     clearRuntimeCompatibilityCacheForTests()
-    clearRuntimeHostPathVerdictsForTests()
+    clearRuntimeHostPathProbesForTests()
     clearLegacyQuickOpenInventoryCacheForTests()
     replaceRuntimeEnvironmentRevisions([])
     fsReadFile.mockReset()

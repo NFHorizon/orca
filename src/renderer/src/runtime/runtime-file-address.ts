@@ -1,6 +1,7 @@
 import { FILES_HOST_PATH_RUNTIME_CAPABILITY } from '../../../shared/runtime-file-contracts'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import type { RuntimeStatus } from '../../../shared/runtime-types'
 import type { RuntimeFileOperationArgs, RuntimeFileReadArgs } from './runtime-file-client-types'
 import {
   canReadRelativeRuntimeFile,
@@ -8,7 +9,6 @@ import {
   isAbsolutePathLike
 } from './runtime-file-routing'
 import { getRuntimeEnvironmentStatus, peekRuntimeEnvironmentStatus } from './runtime-rpc-client'
-import { getRuntimeEnvironmentRevision } from './runtime-environment-revision'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 
 /** The fields that name one file on its owner host; spread into any `files.*` request. */
@@ -25,73 +25,66 @@ export type RuntimeFileAddress = {
 type HostPathOwnerContext = Pick<RuntimeFileOperationArgs, 'target' | 'connectionId'> &
   Partial<Pick<RuntimeFileOperationArgs, 'worktreeId' | 'expectedExecutionHostId'>>
 
-type HostPathVerdict = { serves: boolean; checkedAt: number; revision: number | undefined }
-
-// Why: the shared status cache forgets a negative capability answer, so an older host would be
-// re-asked on every outside link, click and read; this verdict is kept for the status lifetime.
-const HOST_PATH_VERDICT_TTL_MS = 60_000
-const hostPathVerdicts = new Map<string, HostPathVerdict>()
+// Why: the answer is read from the shared status cache on every call, which already drops it when
+// the host's runtime is replaced, the connection is re-checked or re-paired. Only a failed probe's
+// time is kept here, so a host that can't answer isn't re-asked for a minute.
+const HOST_PATH_PROBE_RETRY_MS = 60_000
+const hostPathProbeFailedAt = new Map<string, number>()
 const hostPathProbes = new Map<string, Promise<boolean>>()
 
-function currentHostPathVerdict(environmentId: string): HostPathVerdict | undefined {
-  const verdict = hostPathVerdicts.get(environmentId)
-  if (verdict && verdict.revision === getRuntimeEnvironmentRevision(environmentId)) {
-    return verdict
-  }
-  const status = peekRuntimeEnvironmentStatus(environmentId)
-  if (!status) {
-    return undefined
-  }
-  const peeked = {
-    serves: status.capabilities?.includes(FILES_HOST_PATH_RUNTIME_CAPABILITY) === true,
-    checkedAt: Date.now(),
-    revision: getRuntimeEnvironmentRevision(environmentId)
-  }
-  hostPathVerdicts.set(environmentId, peeked)
-  return peeked
+function servesFilesByPath(status: RuntimeStatus): boolean {
+  return status.capabilities?.includes(FILES_HOST_PATH_RUNTIME_CAPABILITY) === true
 }
 
-function probeHostPathVerdict(environmentId: string): Promise<boolean> {
+function probeHostPathCapability(environmentId: string): Promise<boolean> {
   const running = hostPathProbes.get(environmentId)
   if (running) {
     return running
   }
-  const revision = getRuntimeEnvironmentRevision(environmentId)
+  const failedAt = hostPathProbeFailedAt.get(environmentId)
+  if (failedAt !== undefined && Date.now() - failedAt < HOST_PATH_PROBE_RETRY_MS) {
+    return Promise.resolve(false)
+  }
   const probe = getRuntimeEnvironmentStatus(environmentId, 15_000)
     .then((status) => {
-      const serves = status.capabilities?.includes(FILES_HOST_PATH_RUNTIME_CAPABILITY) === true
-      hostPathVerdicts.set(environmentId, { serves, checkedAt: Date.now(), revision })
-      return serves
+      hostPathProbeFailedAt.delete(environmentId)
+      return servesFilesByPath(status)
     })
     // Why: a host that can't answer is treated as an older one, so callers keep today's path.
-    .catch(() => false)
+    .catch(() => {
+      hostPathProbeFailedAt.set(environmentId, Date.now())
+      return false
+    })
     .finally(() => hostPathProbes.delete(environmentId))
   hostPathProbes.set(environmentId, probe)
   return probe
 }
 
 /**
- * Whether the host already answered that it serves files by path; undefined when it never has.
- * Never waits: a missing or stale answer is refreshed in the background.
+ * Whether the host's cached status says it serves files by path; undefined when no status is
+ * cached. Never waits: an unknown answer is probed in the background.
  */
 export function knownRuntimeEnvironmentServesFilesByPath(
   environmentId: string
 ): boolean | undefined {
-  const verdict = currentHostPathVerdict(environmentId)
-  if (!verdict || Date.now() - verdict.checkedAt >= HOST_PATH_VERDICT_TTL_MS) {
-    void probeHostPathVerdict(environmentId)
+  const status = peekRuntimeEnvironmentStatus(environmentId)
+  if (!status) {
+    void probeHostPathCapability(environmentId)
+    return undefined
   }
-  return verdict?.serves
+  return servesFilesByPath(status)
 }
 
-/** Waits for the host only when it has never answered; a stale answer is used and refreshed. */
+/** Waits for the host only when no status is cached for it. */
 export function runtimeEnvironmentServesFilesByPath(environmentId: string): Promise<boolean> {
-  const known = knownRuntimeEnvironmentServesFilesByPath(environmentId)
-  return known === undefined ? probeHostPathVerdict(environmentId) : Promise.resolve(known)
+  const status = peekRuntimeEnvironmentStatus(environmentId)
+  return status
+    ? Promise.resolve(servesFilesByPath(status))
+    : probeHostPathCapability(environmentId)
 }
 
-export function clearRuntimeHostPathVerdictsForTests(): void {
-  hostPathVerdicts.clear()
+export function clearRuntimeHostPathProbesForTests(): void {
+  hostPathProbeFailedAt.clear()
   hostPathProbes.clear()
 }
 
