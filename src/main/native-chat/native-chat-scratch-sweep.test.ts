@@ -482,19 +482,22 @@ describe('the chat scratch folder sweep', () => {
     )
   })
 
-  it('logs a root it cannot list and still sweeps the other one', async () => {
+  it.each([
+    ['the pre-rename root', legacyNativeChatVisualsRootFor, nativeChatScratchRootFor],
+    ['the current root', nativeChatScratchRootFor, legacyNativeChatVisualsRootFor]
+  ])('logs %s when it cannot be listed and still sweeps the other', async (_, broken, other) => {
     const state = stateDirectory()
-    const legacy = legacyNativeChatVisualsRootFor(state)
-    const legacyOrphan = visualsFor(state, 'chat-old-deleted', RECENT, legacy)
-    const orphan = visualsFor(state, 'chat-deleted')
+    const brokenRoot = broken(state)
+    const kept = visualsFor(state, 'chat-old-deleted', RECENT, brokenRoot)
+    const orphan = visualsFor(state, 'chat-deleted', RECENT, other(state))
     const sweep = deps(state, [])
-    unlistable.add(legacy)
+    unlistable.add(brokenRoot)
     await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
     expect(existsSync(orphan)).toBe(false)
-    expect(existsSync(legacyOrphan)).toBe(true)
+    expect(existsSync(kept)).toBe(true)
     expect(sweep.logger.warn).toHaveBeenCalledWith(
       'native-chat scratch root could not be listed',
-      expect.objectContaining({ scope: 'nativeChatScratch.sweep', root: legacy })
+      expect.objectContaining({ scope: 'nativeChatScratch.sweep', root: brokenRoot })
     )
   })
 
