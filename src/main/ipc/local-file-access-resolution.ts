@@ -243,8 +243,8 @@ function declaredKindRule(
 
 /**
  * The one resolver for local file requests, from the desktop window or this host's runtime file
- * services; `rootScope` is the caller's default-root set. A declared kind never refuses what that
- * default check allows; its own rule only adds paths outside every root.
+ * services; `rootScope` is the caller's roots and honoured access kinds. A declared kind never
+ * refuses what the default check allows; its own rule only adds paths outside every root.
  */
 export async function resolveLocalRequestPathInScope(
   targetPath: string,
@@ -255,7 +255,9 @@ export async function resolveLocalRequestPathInScope(
 ): Promise<string> {
   // Why the leaf is kept: a rename acts on a link itself, never on what it points to.
   const options = { preserveSymlink: operation === 'rename-from' || operation === 'rename-to' }
-  const fileAccess = parseLocalFileAccess(access)
+  const parsedAccess = parseLocalFileAccess(access)
+  const fileAccess =
+    parsedAccess && rootScope.accessKinds.has(parsedAccess.kind) ? parsedAccess : undefined
   const kindRule = fileAccess && declaredKindRule(fileAccess, operation, store, rootScope)
   if (!fileAccess || !kindRule) {
     return resolveScopedAuthorizedPath(targetPath, store, rootScope, options)
