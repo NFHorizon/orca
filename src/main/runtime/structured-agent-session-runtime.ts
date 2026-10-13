@@ -43,6 +43,7 @@ import {
   type OpenedAgentSessionRecordStore
 } from './agent-session-record-store-slot'
 import { journalDatabasePath } from '../native-chat/agent-session-journal/journal-host-database'
+import { nativeChatScratchFolderFor } from '../native-chat/native-chat-scratch-folder'
 import { journalDatabaseHoldsAgentSessions } from '../native-chat/agent-session-journal/journal-database'
 import {
   createStructuredAgentSessionOwnerProbe,
@@ -314,6 +315,13 @@ async function installOnJournal(
     logger: deps.logger,
     ...(deps.onSessionStatusChanged ? { onSessionStatusChanged: deps.onSessionStatusChanged } : {}),
     ...(deps.statusSink ? { statusSink: deps.statusSink } : {}),
+    // The same folder each launch hands its agent, so a client reads what the agent wrote.
+    ...(deps.nativeChatVisuals
+      ? {
+          scratchDirectoryFor: (sessionId: string) =>
+            nativeChatScratchFolderFor(deps.stateDirectory, sessionId)
+        }
+      : {}),
     ...(deps.hasOpenDispatch ? { hasOpenDispatch: deps.hasOpenDispatch } : {}),
     ...(deps.onSessionTabHidden ? { onSessionTabHidden: deps.onSessionTabHidden } : {}),
     ...(await modelCatalogHostDeps({

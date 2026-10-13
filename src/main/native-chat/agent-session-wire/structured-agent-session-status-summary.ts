@@ -2,6 +2,7 @@ import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionStatusSummary } from '../../../shared/agent-session-wire'
 import { normalizeOptionalField } from '../../../shared/agent-status-field-normalization'
 import { AGENT_MODEL_MAX_LENGTH } from '../../../shared/agent-status-types'
+import { isNativeLocalLocation } from '../../../shared/execution-host'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { StructuredAgentSessionStatusState } from './structured-agent-session-status-journal-projection'
 import type { StructuredAgentSessionProviderChild } from './structured-agent-session-host-types'
@@ -20,6 +21,7 @@ export function structuredAgentSessionStatusSummary({
   state,
   stopping,
   childWork,
+  scratchDirectoryFor,
   now
 }: {
   sessionId: string
@@ -34,6 +36,8 @@ export function structuredAgentSessionStatusSummary({
   /** A person's Stop is still ending the work it stopped. */
   stopping: boolean
   childWork: Pick<AgentSessionStatusSummary, 'children' | 'backgroundTasks'>
+  /** This host's scratch folder for a chat; absent on a host that gives chats none. */
+  scratchDirectoryFor?: (sessionId: string) => string | undefined
   now: () => number
 }): AgentSessionStatusSummary {
   const projected = state.summary
@@ -43,6 +47,11 @@ export function structuredAgentSessionStatusSummary({
   const model = normalizeOptionalField(record?.options?.model, AGENT_MODEL_MAX_LENGTH)
   const permissionMode = record?.options?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
   const launchDirectory = record ? agentSessionPinnedLaunchDirectory(record) : undefined
+  // Only a chat running natively on this host is launched with the folder; a WSL agent could not
+  // reach a Windows-side path.
+  const scratchDirectory = isNativeLocalLocation(session.params.location)
+    ? scratchDirectoryFor?.(sessionId)
+    : undefined
   return {
     sessionId,
     workspaceId: session.params.location.workspaceId,
@@ -65,6 +74,7 @@ export function structuredAgentSessionStatusSummary({
     ...childWork,
     ...(providerSession ? { providerSession } : {}),
     ...(launchDirectory ? { launchDirectory } : {}),
+    ...(scratchDirectory ? { scratchDirectory } : {}),
     ...(record?.conversationName ? { conversationName: record.conversationName } : {}),
     updatedAt: journal.lastActivityAt() || now()
   }

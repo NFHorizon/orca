@@ -105,6 +105,17 @@ describe("the phone's status stream", () => {
     expect(read()).not.toHaveProperty('hostExecutionOwned')
   })
 
+  it("keeps the host's scratch folder on the row, and through contact loss", () => {
+    mobileStructuredSessionStatusFeed(client).subscribe(() => {})
+    const folder = 'C:\\Users\\me\\AppData\\Roaming\\orca\\chat-scratch\\0123456789abcdef'
+    frames[0]?.({ type: 'snapshot', sessions: [{ ...summary(false), scratchDirectory: folder }] })
+    expect(read()?.scratchDirectory).toBe(folder)
+
+    connection('reconnecting')
+
+    expect(read()?.scratchDirectory).toBe(folder)
+  })
+
   it('reads a host that refuses the method to phones as one without it, asking once per connection', () => {
     mobileStructuredSessionStatusFeed(client).subscribe(() => {})
 

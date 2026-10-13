@@ -20,6 +20,7 @@ export function createStructuredAgentSessionHostStatusFeed(args: {
     logger: StructuredAgentSessionLogger
     onSessionStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged']
     statusSink?: StructuredAgentSessionStatusSink
+    scratchDirectoryFor?: (sessionId: string) => string
   }
   onAgentStarted?: (sessionId: string) => void
   onChildWorkChanged?: (sessionId: string) => void
@@ -33,6 +34,7 @@ export function createStructuredAgentSessionHostStatusFeed(args: {
     // Resolved per call for the same reason the other deps are: the host builds this feed in a
     // field initializer, before its constructor parameters are assigned.
     statusSink: () => args.deps().statusSink,
+    scratchDirectoryFor: (sessionId) => args.deps().scratchDirectoryFor?.(sessionId),
     ...(args.onAgentStarted ? { onAgentStarted: args.onAgentStarted } : {}),
     ...(args.onChildWorkChanged ? { onChildWorkChanged: args.onChildWorkChanged } : {})
   })

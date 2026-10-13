@@ -34,3 +34,21 @@ it('a clearing frame removes progress rather than merging the previous optional 
     foldAgentSessionStatusEvent(snapshot, { type: 'status', session: summary }).get('a')
   ).toEqual(summary)
 })
+
+it('keeps the scratch folder through contact loss: it is where the chat lives, not live state', () => {
+  const withFolder = {
+    ...summary,
+    scratchDirectory: '/state/chat-scratch/abc',
+    stopping: true as const
+  }
+  const snapshot = foldAgentSessionStatusEvent(new Map(), { type: 'status', session: withFolder })
+  expect(revokeAgentSessionStatusLive(snapshot).get('a')?.scratchDirectory).toBe(
+    '/state/chat-scratch/abc'
+  )
+})
+
+it('carries a field this build does not know, as an older client does a newer host field', () => {
+  const newer = { ...summary, fieldFromANewerHost: 'value' }
+  const snapshot = foldAgentSessionStatusEvent(new Map(), { type: 'snapshot', sessions: [newer] })
+  expect(snapshot.get('a')).toEqual(newer)
+})
