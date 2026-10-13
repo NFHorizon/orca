@@ -1,5 +1,5 @@
 // Reading one visual by its absolute host path. This is the boundary, not the renderer: the path
-// must name a visual file directly inside one chat's folder under this host's visuals root, both
+// must name a visual file directly inside one chat's folder under this host's scratch root, both
 // lexically and canonically, be a regular file reached without a symlink, and be UTF-8 text within
 // the byte cap.
 
@@ -25,7 +25,7 @@ const VISUAL_OPEN_FLAGS =
   constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0)
 
 const REVISION_HEX_LENGTH = 32
-// The host mints each chat's folder name as 32 lowercase hex (`nativeChatVisualsFolderName`).
+// The host mints each chat's folder name as 32 lowercase hex (`nativeChatScratchFolderName`).
 const CHAT_FOLDER_NAME = /^[0-9a-f]{32}$/
 
 class VisualReadRefusal extends Error {
@@ -204,7 +204,7 @@ async function readContained(
 }
 
 export type NativeChatVisualPathParts = {
-  /** The chat's folder name: 32 hex, one segment directly under the visuals root. */
+  /** The chat's folder name: 32 hex, one segment directly under the scratch root. */
   folderName: string
   /** The bare visual file name inside that folder. */
   file: string
@@ -212,14 +212,14 @@ export type NativeChatVisualPathParts = {
 
 /**
  * Splits `filePath` into the chat folder and visual file it names, or null unless it is exactly
- * `<visualsRoot>/<32 hex>/<visual file name>`. Lexical only; the read re-checks on disk. Path syntax
+ * `<scratchRoot>/<32 hex>/<visual file name>`. Lexical only; the read re-checks on disk. Path syntax
  * follows the root, so a Windows root accepts `\` or `/` separators and compares case-insensitively.
  */
 export function nativeChatVisualPathParts(
-  visualsRoot: string,
+  scratchRoot: string,
   filePath: string
 ): NativeChatVisualPathParts | null {
-  const flavor = isWindowsAbsolutePathLike(visualsRoot) ? win32 : posix
+  const flavor = isWindowsAbsolutePathLike(scratchRoot) ? win32 : posix
   const native = flavor === win32 ? filePath.replace(/\//g, '\\') : filePath
   // Why normalized only: `..`, `.`, doubled or trailing separators would let the lexical parent
   // differ from the directory the open walks.
@@ -236,7 +236,7 @@ export function nativeChatVisualPathParts(
   if (
     !isNativeChatVisualFileName(file) ||
     !CHAT_FOLDER_NAME.test(folderName) ||
-    flavor.relative(visualsRoot, flavor.dirname(folder)) !== ''
+    flavor.relative(scratchRoot, flavor.dirname(folder)) !== ''
   ) {
     return null
   }
@@ -245,19 +245,19 @@ export function nativeChatVisualPathParts(
 
 /**
  * The visual at absolute host path `filePath`, or the refusal the host observed. Any path that is not
- * a visual file directly in a chat folder under `visualsRoot` (this host's
- * `nativeChatVisualsRootFor(stateDirectory)`) is `outside_folder` without touching the disk.
+ * a visual file directly in a chat folder under `scratchRoot` (this host's
+ * `nativeChatScratchRootFor(stateDirectory)`) is `outside_folder` without touching the disk.
  * Unexpected filesystem faults still throw, so the client reads them as unavailable rather than as a
  * verdict about the file; the thrown error names only the error code, never a host path.
  */
 export async function readNativeChatVisualPath(
-  visualsRoot: string,
+  scratchRoot: string,
   filePath: string,
   knownRevision?: string
 ): Promise<AgentSessionReadVisualResult> {
   try {
     // Why resolve: the host's data root may be relative, and the shape check needs an absolute root.
-    const root = resolve(visualsRoot)
+    const root = resolve(scratchRoot)
     const parts = nativeChatVisualPathParts(root, filePath)
     if (!parts) {
       refuse('outside_folder')

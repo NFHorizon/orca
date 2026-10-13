@@ -1,4 +1,4 @@
-// `agentSession.readVisual` — one HTML visual from a chat's own visuals folder.
+// `agentSession.readVisual` — one HTML visual from a chat's own scratch folder.
 //
 // Additive: an older host answers `method_not_found` (a phone gets `forbidden` from the mobile
 // allowlist gate on a host without the entry), and the client shows the visual as unavailable.
@@ -12,9 +12,9 @@ import {
   type AgentSessionReadVisualResult
 } from '../../../../shared/rpc-contract/agent-session-visual-params'
 import {
-  nativeChatVisualsFolderFor,
-  nativeChatVisualsRootFor
-} from '../../../native-chat/native-chat-visuals-folder'
+  nativeChatScratchFolderFor,
+  nativeChatScratchRootFor
+} from '../../../native-chat/native-chat-scratch-folder'
 import { getProfileUserDataPath } from '../../../orca-profiles/profile-storage-paths'
 import { readNativeChatVisualPath } from '../../../native-chat/native-chat-visual-file-read'
 import { defineMethod } from '../core'
@@ -32,7 +32,7 @@ export const STRUCTURED_AGENT_SESSION_VISUAL_METHODS = [
         return { ok: false, error: 'session_not_found' }
       }
       // Structured chats run on their owning runtime's own filesystem; any other location has no
-      // visuals folder this process can read.
+      // scratch folder this process can read.
       if (
         record.location.executionHostId !== LOCAL_EXECUTION_HOST_ID ||
         record.location.wslDistro
@@ -43,8 +43,8 @@ export const STRUCTURED_AGENT_SESSION_VISUAL_METHODS = [
       // resolved because the reader accepts only absolute paths and the data root may be relative.
       const stateDirectory = resolve(getProfileUserDataPath())
       return readNativeChatVisualPath(
-        nativeChatVisualsRootFor(stateDirectory),
-        join(nativeChatVisualsFolderFor(stateDirectory, params.sessionId), params.file),
+        nativeChatScratchRootFor(stateDirectory),
+        join(nativeChatScratchFolderFor(stateDirectory, params.sessionId), params.file),
         params.knownRevision
       )
     }

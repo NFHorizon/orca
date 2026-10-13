@@ -5,10 +5,10 @@ import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { NATIVE_CHAT_VISUAL_MAX_BYTES } from '../../shared/native-chat-visual-directive'
 import {
-  nativeChatVisualsFolderFor,
-  nativeChatVisualsFolderName,
-  nativeChatVisualsRootFor
-} from './native-chat-visuals-folder'
+  nativeChatScratchFolderFor,
+  nativeChatScratchFolderName,
+  nativeChatScratchRootFor
+} from './native-chat-scratch-folder'
 import {
   nativeChatVisualPathParts,
   nativeChatVisualRevision,
@@ -33,23 +33,13 @@ const OUTSIDE = { ok: false, error: 'outside_folder' } as const
 
 beforeEach(async () => {
   stateDirectory = await mkdtemp(join(tmpdir(), 'orca-visual-read-'))
-  root = nativeChatVisualsRootFor(stateDirectory)
-  folder = nativeChatVisualsFolderFor(stateDirectory, 'session-alpha')
+  root = nativeChatScratchRootFor(stateDirectory)
+  folder = nativeChatScratchFolderFor(stateDirectory, 'session-alpha')
   await mkdir(folder, { recursive: true })
 })
 
 afterEach(async () => {
   await rm(stateDirectory, { recursive: true, force: true })
-})
-
-describe('nativeChatVisualsFolderFor', () => {
-  it('places each chat in its own hashed folder under the state directory', () => {
-    const alpha = nativeChatVisualsFolderFor('/state', 'session-alpha')
-    const beta = nativeChatVisualsFolderFor('/state', 'session-beta')
-    expect(alpha).toMatch(/native-chat-visuals[\\/][0-9a-f]{32}$/)
-    expect(alpha.startsWith(join('/state', 'native-chat-visuals'))).toBe(true)
-    expect(alpha).not.toBe(beta)
-  })
 })
 
 describe('readNativeChatVisualPath', () => {
@@ -65,7 +55,7 @@ describe('readNativeChatVisualPath', () => {
     })
   })
 
-  it('resolves a visuals root given relative to the working directory', async () => {
+  it('resolves a scratch root given relative to the working directory', async () => {
     await writeFile(join(folder, 'chart.html'), '<p>a</p>')
     expect(
       await readNativeChatVisualPath(relative(process.cwd(), root), join(folder, 'chart.html'))
@@ -91,7 +81,7 @@ describe('readNativeChatVisualPath', () => {
       ok: false,
       error: 'not_found'
     })
-    const absent = nativeChatVisualsFolderFor(stateDirectory, 'session-never')
+    const absent = nativeChatScratchFolderFor(stateDirectory, 'session-never')
     expect(await readAt(join(absent, 'chart.html'))).toEqual({
       ok: false,
       error: 'not_found'
@@ -109,9 +99,9 @@ describe('readNativeChatVisualPath', () => {
     }
   })
 
-  it('refuses a path outside the visuals root, including a root-prefixed sibling', async () => {
+  it('refuses a path outside the scratch root, including a root-prefixed sibling', async () => {
     const other = join(stateDirectory, 'other')
-    const lookalike = join(`${root}-evil`, nativeChatVisualsFolderName('session-alpha'))
+    const lookalike = join(`${root}-evil`, nativeChatScratchFolderName('session-alpha'))
     for (const directory of [other, lookalike]) {
       await mkdir(directory, { recursive: true })
       await writeFile(join(directory, 'chart.html'), '<p>x</p>')
@@ -121,7 +111,7 @@ describe('readNativeChatVisualPath', () => {
   })
 
   it('refuses a parent that is not a host-minted 32-hex folder', async () => {
-    const hex = nativeChatVisualsFolderName('session-alpha')
+    const hex = nativeChatScratchFolderName('session-alpha')
     for (const name of ['chat', hex.toUpperCase(), hex.slice(1), `${hex}0`]) {
       await mkdir(join(root, name), { recursive: true })
       await writeFile(join(root, name, 'chart.html'), '<p>x</p>')
@@ -130,7 +120,7 @@ describe('readNativeChatVisualPath', () => {
   })
 
   it('refuses a file directly in the root or nested below a chat folder', async () => {
-    const hex = nativeChatVisualsFolderName('session-beta')
+    const hex = nativeChatScratchFolderName('session-beta')
     await writeFile(join(root, 'chart.html'), '<p>x</p>')
     await mkdir(join(folder, hex), { recursive: true })
     await writeFile(join(folder, hex, 'chart.html'), '<p>x</p>')
@@ -147,13 +137,13 @@ describe('readNativeChatVisualPath', () => {
 
   it('refuses traversal and non-normalized spellings of a real visual', async () => {
     await writeFile(join(folder, 'chart.html'), '<p>x</p>')
-    const hex = nativeChatVisualsFolderName('session-alpha')
+    const hex = nativeChatScratchFolderName('session-alpha')
     for (const filePath of [
       `${folder}${sep}..${sep}${hex}${sep}chart.html`,
       `${root}${sep}.${sep}${hex}${sep}chart.html`,
       `${root}${sep}${sep}${hex}${sep}chart.html`,
       `${folder}${sep}chart.html${sep}`,
-      join('native-chat-visuals', hex, 'chart.html'),
+      join('chat-scratch', hex, 'chart.html'),
       `${hex}${sep}chart.html`,
       'chart.html'
     ]) {
@@ -162,7 +152,7 @@ describe('readNativeChatVisualPath', () => {
   })
 
   posixIt('refuses a symlink to a sibling chat folder or another workspace', async () => {
-    const sibling = nativeChatVisualsFolderFor(stateDirectory, 'session-beta')
+    const sibling = nativeChatScratchFolderFor(stateDirectory, 'session-beta')
     await mkdir(sibling, { recursive: true })
     await writeFile(join(sibling, 'theirs.html'), '<p>other chat</p>')
     const worktree = join(stateDirectory, 'worktree')
@@ -193,8 +183,8 @@ describe('readNativeChatVisualPath', () => {
     })
   })
 
-  posixIt('refuses when the shared visuals root is a symlink', async () => {
-    const root = join(stateDirectory, 'native-chat-visuals')
+  posixIt('refuses when the shared scratch root is a symlink', async () => {
+    const root = nativeChatScratchRootFor(stateDirectory)
     const moved = join(stateDirectory, 'moved-root')
     await rm(root, { recursive: true })
     await mkdir(join(moved, 'x'), { recursive: true })
@@ -283,25 +273,22 @@ describe('readNativeChatVisualPath', () => {
 })
 
 describe('nativeChatVisualPathParts', () => {
-  const hex = nativeChatVisualsFolderName('session-alpha')
+  const hex = nativeChatScratchFolderName('session-alpha')
 
   it('splits a POSIX visual path and keeps POSIX case sensitivity', () => {
-    const posixRoot = '/home/me/.config/orca/native-chat-visuals'
+    const posixRoot = '/home/me/.config/orca/chat-scratch'
     expect(nativeChatVisualPathParts(posixRoot, `${posixRoot}/${hex}/chart.html`)).toEqual({
       folderName: hex,
       file: 'chart.html'
     })
     expect(
-      nativeChatVisualPathParts(
-        posixRoot,
-        `/HOME/me/.config/orca/native-chat-visuals/${hex}/a.html`
-      )
+      nativeChatVisualPathParts(posixRoot, `/HOME/me/.config/orca/chat-scratch/${hex}/a.html`)
     ).toBeNull()
     expect(nativeChatVisualPathParts(posixRoot, `C:\\x\\${hex}\\chart.html`)).toBeNull()
   })
 
   it('accepts Windows separators and drive-letter case under a Windows root', () => {
-    const windowsRoot = 'C:\\Users\\me\\AppData\\Roaming\\orca\\native-chat-visuals'
+    const windowsRoot = 'C:\\Users\\me\\AppData\\Roaming\\orca\\chat-scratch'
     const parts = { folderName: hex, file: 'chart.html' }
     expect(nativeChatVisualPathParts(windowsRoot, `${windowsRoot}\\${hex}\\chart.html`)).toEqual(
       parts
@@ -309,26 +296,26 @@ describe('nativeChatVisualPathParts', () => {
     expect(
       nativeChatVisualPathParts(
         windowsRoot,
-        `C:/Users/me/AppData/Roaming/orca/native-chat-visuals/${hex}/chart.html`
+        `C:/Users/me/AppData/Roaming/orca/chat-scratch/${hex}/chart.html`
       )
     ).toEqual(parts)
     expect(
       nativeChatVisualPathParts(
         windowsRoot,
-        `c:\\users\\me\\appdata\\roaming\\orca\\native-chat-visuals\\${hex}\\chart.html`
+        `c:\\users\\me\\appdata\\roaming\\orca\\chat-scratch\\${hex}\\chart.html`
       )
     ).toEqual(parts)
   })
 
   it('refuses Windows traversal, other roots and stream or device names', () => {
-    const windowsRoot = 'C:\\Users\\me\\AppData\\Roaming\\orca\\native-chat-visuals'
+    const windowsRoot = 'C:\\Users\\me\\AppData\\Roaming\\orca\\chat-scratch'
     for (const filePath of [
       `${windowsRoot}\\${hex}\\..\\${hex}\\chart.html`,
       `${windowsRoot}\\${hex}\\sub\\chart.html`,
-      `D:\\Users\\me\\AppData\\Roaming\\orca\\native-chat-visuals\\${hex}\\chart.html`,
-      `C:Users\\me\\AppData\\Roaming\\orca\\native-chat-visuals\\${hex}\\chart.html`,
+      `D:\\Users\\me\\AppData\\Roaming\\orca\\chat-scratch\\${hex}\\chart.html`,
+      `C:Users\\me\\AppData\\Roaming\\orca\\chat-scratch\\${hex}\\chart.html`,
       `\\\\?\\${windowsRoot}\\${hex}\\chart.html`,
-      `\\\\server\\share\\native-chat-visuals\\${hex}\\chart.html`,
+      `\\\\server\\share\\chat-scratch\\${hex}\\chart.html`,
       `${windowsRoot}\\${hex}\\chart.html\\`,
       `${windowsRoot}\\${hex}\\chart.html:stream`,
       `${windowsRoot}\\${hex}\\CON.html`,

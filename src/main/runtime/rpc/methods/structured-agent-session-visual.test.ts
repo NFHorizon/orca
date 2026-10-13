@@ -6,7 +6,7 @@ import type { AgentSessionRecord } from '../../../../shared/agent-session-record
 import { agentSessionRecordFixture } from '../../../../shared/agent-session-record.test-fixture'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import { NATIVE_CHAT_VISUAL_MAX_BYTES } from '../../../../shared/native-chat-visual-directive'
-import { nativeChatVisualsFolderFor } from '../../../native-chat/native-chat-visuals-folder'
+import { nativeChatScratchFolderFor } from '../../../native-chat/native-chat-scratch-folder'
 import { nativeChatVisualRevision } from '../../../native-chat/native-chat-visual-file-read'
 import { ALL_RPC_METHODS } from '.'
 import { STRUCTURED_AGENT_SESSION_VISUAL_METHODS } from './structured-agent-session-visual'
@@ -50,7 +50,7 @@ afterEach(async () => {
 })
 
 async function writeVisual(name: string, html: string): Promise<void> {
-  const folder = nativeChatVisualsFolderFor(stateDirectory, SESSION)
+  const folder = nativeChatScratchFolderFor(stateDirectory, SESSION)
   await mkdir(folder, { recursive: true })
   await writeFile(join(folder, name), html)
 }
@@ -134,7 +134,7 @@ describe('agentSession.readVisual', () => {
   it('keeps the protected-read refusals', async () => {
     await writeVisual('big.html', 'a'.repeat(NATIVE_CHAT_VISUAL_MAX_BYTES + 1))
     await writeVisual('binary.html', '<\0>')
-    await mkdir(join(nativeChatVisualsFolderFor(stateDirectory, SESSION), 'dir.html'))
+    await mkdir(join(nativeChatScratchFolderFor(stateDirectory, SESSION), 'dir.html'))
     for (const [file, error] of [
       ['big.html', 'too_large'],
       ['binary.html', 'not_text'],
@@ -151,7 +151,7 @@ describe('agentSession.readVisual', () => {
 
   posixIt('refuses a visual that is a symlink', async () => {
     await writeVisual('real.html', '<p>real</p>')
-    const folder = nativeChatVisualsFolderFor(stateDirectory, SESSION)
+    const folder = nativeChatScratchFolderFor(stateDirectory, SESSION)
     await symlink(join(folder, 'real.html'), join(folder, 'link.html'))
     const reply = await call(
       'agentSession.readVisual',
