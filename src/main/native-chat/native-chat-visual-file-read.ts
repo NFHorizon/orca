@@ -1,11 +1,13 @@
-// Reading one visual out of a chat's scratch folder. This is the boundary, not the renderer: the
-// file must sit directly in the folder both lexically and canonically, be a regular file reached
-// without a symlink, and be UTF-8 text within the byte cap.
+// Reading one visual by its absolute host path. This is the boundary, not the renderer: the path
+// must name a visual file directly inside one chat's folder under this host's scratch root, both
+// lexically and canonically, be a regular file reached without a symlink, and be UTF-8 text within
+// the byte cap.
 
 import { createHash } from 'node:crypto'
 import { constants, type Stats } from 'node:fs'
 import { lstat, open, realpath, type FileHandle } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, posix, resolve, win32 } from 'node:path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
 import {
   NATIVE_CHAT_VISUAL_MAX_BYTES,
   isNativeChatVisualFileName
@@ -23,6 +25,8 @@ const VISUAL_OPEN_FLAGS =
   constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0)
 
 const REVISION_HEX_LENGTH = 32
+// The host mints each chat's folder name as 32 lowercase hex (`nativeChatScratchFolderName`).
+const CHAT_FOLDER_NAME = /^[0-9a-f]{32}$/
 
 class VisualReadRefusal extends Error {
   constructor(readonly refusal: AgentSessionVisualReadError) {
@@ -164,9 +168,6 @@ async function readContained(
   file: string,
   knownRevision: string | undefined
 ): Promise<AgentSessionReadVisualResult> {
-  if (!isNativeChatVisualFileName(file)) {
-    refuse('outside_folder')
-  }
   const folderReal = await canonicalFolder(folder)
   const candidate = join(folderReal, file)
   if (dirname(candidate) !== folderReal) {
@@ -202,18 +203,67 @@ async function readContained(
   }
 }
 
+export type NativeChatVisualPathParts = {
+  /** The chat's folder name: 32 hex, one segment directly under the scratch root. */
+  folderName: string
+  /** The bare visual file name inside that folder. */
+  file: string
+}
+
 /**
- * The visual `file` from `folder`, or the refusal the host observed. Unexpected filesystem faults
- * still throw, so the client reads them as unavailable rather than as a verdict about the file; the
- * thrown error names only the error code, never a host path.
+ * Splits `filePath` into the chat folder and visual file it names, or null unless it is exactly
+ * `<scratchRoot>/<32 hex>/<visual file name>`. Lexical only; the read re-checks on disk. Path syntax
+ * follows the root, so a Windows root accepts `\` or `/` separators and compares case-insensitively.
  */
-export async function readNativeChatVisualFile(
-  folder: string,
-  file: string,
+export function nativeChatVisualPathParts(
+  scratchRoot: string,
+  filePath: string
+): NativeChatVisualPathParts | null {
+  const flavor = isWindowsAbsolutePathLike(scratchRoot) ? win32 : posix
+  const native = flavor === win32 ? filePath.replace(/\//g, '\\') : filePath
+  // Why normalized only: `..`, `.`, doubled or trailing separators would let the lexical parent
+  // differ from the directory the open walks.
+  if (
+    !flavor.isAbsolute(native) ||
+    flavor.normalize(native) !== native ||
+    native.endsWith(flavor.sep)
+  ) {
+    return null
+  }
+  const file = flavor.basename(native)
+  const folder = flavor.dirname(native)
+  const folderName = flavor.basename(folder)
+  if (
+    !isNativeChatVisualFileName(file) ||
+    !CHAT_FOLDER_NAME.test(folderName) ||
+    flavor.relative(scratchRoot, flavor.dirname(folder)) !== ''
+  ) {
+    return null
+  }
+  return { folderName, file }
+}
+
+/**
+ * The visual at absolute host path `filePath`, or the refusal the host observed. Any path that is not
+ * a visual file directly in a chat folder under `scratchRoot` (this host's
+ * `nativeChatScratchRootFor(stateDirectory)`) is `outside_folder` without touching the disk.
+ * Unexpected filesystem faults still throw, so the client reads them as unavailable rather than as a
+ * verdict about the file; the thrown error names only the error code, never a host path.
+ */
+export async function readNativeChatVisualPath(
+  scratchRoot: string,
+  filePath: string,
   knownRevision?: string
 ): Promise<AgentSessionReadVisualResult> {
   try {
-    return await readContained(folder, file, knownRevision)
+    // Why resolve: the host's data root may be relative, and the shape check needs an absolute root.
+    const root = resolve(scratchRoot)
+    const parts = nativeChatVisualPathParts(root, filePath)
+    if (!parts) {
+      refuse('outside_folder')
+    }
+    // Rebuilt from the validated parts so the disk checks walk the host's own spelling of the root.
+    return await readContained(join(root, parts.folderName), parts.file, knownRevision)
   } catch (error) {
     if (error instanceof VisualReadRefusal) {
       return { ok: false, error: error.refusal }

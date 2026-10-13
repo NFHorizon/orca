@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { FileOpen, WorktreeSelector } from './files-target-params'
+import {
+  FileOpen,
+  HostPathTarget,
+  WorktreeSelector,
+  workspaceOrHostPathTarget
+} from './files-target-params'
 
 export const RUNTIME_FILE_BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
 
@@ -12,20 +17,27 @@ export function isValidRuntimeFileBase64(value: unknown): value is string {
   )
 }
 
-export const FileMutationOpen = FileOpen.extend({
+const FileMutationExpectation = {
   expectedExecutionHostId: z.string().min(1).optional(),
   expectedSshTargetId: z.string().min(1).optional(),
   expectedSshConnectionGeneration: z.number().int().nonnegative().optional()
-})
+}
+
+export const FileMutationOpen = FileOpen.extend(FileMutationExpectation)
 
 // Why: write content must be a real string. Coercing a missing/non-string value
 // to '' silently truncated the target file to empty instead of erroring. An
 // explicit '' is still accepted (writing an empty file is legitimate).
-export const FileWrite = FileMutationOpen.extend({
+const FileWriteContent = {
   content: z
     .unknown()
     .refine((v): v is string => typeof v === 'string', { message: 'Missing file content' })
-})
+}
+
+export const FileWrite = workspaceOrHostPathTarget(
+  FileMutationOpen.extend(FileWriteContent),
+  HostPathTarget.extend(FileMutationExpectation).extend(FileWriteContent)
+)
 
 export const FileWriteBase64 = FileMutationOpen.extend({
   contentBase64: z

@@ -135,6 +135,9 @@ export type RpcContext = {
   authenticatedCallerFingerprint?: string
   pairing?: PairingRpcContext
   deviceSelf?: DeviceSelfRpcContext
+  // Why: the request's `executionHost` tag as it reached this process (a relay strips it on forward);
+  // untrusted, so read only through a parser.
+  requestedExecutionHost?: unknown
   // Why: set only on a desktop that relays; it lists the configured servers it shows.
   mobileRelayHosts?: {
     list(): MobileRelayHostsListResult

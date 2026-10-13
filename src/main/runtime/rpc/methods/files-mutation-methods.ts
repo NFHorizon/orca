@@ -1,4 +1,5 @@
 import { defineMethod } from '../core'
+import { assertHostPathServedHere } from './files-host-path-owner'
 import {
   FileCommitUpload,
   FileCopy,
@@ -38,13 +39,18 @@ export const FILE_MUTATION_METHODS = [
     name: 'files.write',
     permission: 'workspace',
     params: FileWrite,
-    handler: async (params, { runtime }) =>
-      runtime.writeFileExplorerFile(
-        params.worktree,
-        params.relativePath,
-        params.content,
-        ...sshMutationArguments(params)
-      )
+    handler: async (params, ctx) => {
+      if (params.path === undefined) {
+        return ctx.runtime.writeFileExplorerFile(
+          params.worktree,
+          params.relativePath,
+          params.content,
+          ...sshMutationArguments(params)
+        )
+      }
+      assertHostPathServedHere(ctx)
+      return ctx.runtime.writeHostPathFile(params, params.content, ...sshMutationArguments(params))
+    }
   }),
   defineMethod({
     name: 'files.writeBase64',

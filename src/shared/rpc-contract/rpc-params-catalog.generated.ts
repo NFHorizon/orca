@@ -191,19 +191,22 @@ import {
 } from './files-mutation-params'
 import {
   DocPreviewFileRead,
+  FileContentReadTarget,
   FileListAll,
   FileOpenDiff,
   FileOpenTab,
   FilePathSearch,
   FilePathsExist,
   FileReadChunk,
+  FileReadTarget,
   FileSearch,
+  FileStatTarget,
   FileTreePath,
   FileUnwatch,
   ResolveTerminalPath,
   ServerDirectoryBrowse
 } from './files-params'
-import { FileOpen, WorktreeSelector } from './files-target-params'
+import { WorktreeSelector } from './files-target-params'
 import { TerminalArtifactFile, TerminalArtifactFileWrite } from './files-terminal-artifact-params'
 import {
   FolderWorkspaceCreate,
@@ -837,18 +840,18 @@ export const RPC_PARAMS_BY_METHOD = {
   'files.open': FileOpenTab,
   'files.openDiff': FileOpenDiff,
   'files.pathsExist': FilePathsExist,
-  'files.read': FileOpen,
+  'files.read': FileContentReadTarget,
   'files.readChunk': FileReadChunk,
   'files.readDir': FileTreePath,
   'files.readDocPreview': DocPreviewFileRead,
-  'files.readPreview': FileOpen,
+  'files.readPreview': FileReadTarget,
   'files.readTerminalArtifact': TerminalArtifactFile,
   'files.readTerminalArtifactPreview': TerminalArtifactFile,
   'files.rename': FileRename,
   'files.resolveTerminalPath': ResolveTerminalPath,
   'files.search': FileSearch,
   'files.searchPaths': FilePathSearch,
-  'files.stat': FileTreePath,
+  'files.stat': FileStatTarget,
   'files.unwatch': FileUnwatch,
   'files.watch': WorktreeSelector,
   'files.write': FileWrite,

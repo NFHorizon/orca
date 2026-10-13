@@ -53,6 +53,7 @@ export function rpcContextFromTransport(
     pairing: options?.pairing,
     deviceSelf: options?.deviceSelf,
     mobileRelayHosts: options?.mobileRelayHosts,
+    requestedExecutionHost: request.executionHost,
     delegatedMobileDevices: options?.delegatedMobileDevices,
     sendBinary: options?.sendBinary,
     registerBinaryStreamHandler: options?.registerBinaryStreamHandler,

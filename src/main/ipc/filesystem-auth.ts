@@ -44,7 +44,7 @@ export type ResolveAuthorizedPathOptions = {
    * Canonicalize the parent but preserve the leaf so delete/rename target the symlink itself, not its destination (which may live outside allowed roots).
    */
   preserveSymlink?: boolean
-  /** Roots only the desktop window may use (never runtime RPC), checked like any other root. */
+  /** The caller's `LocalFileRootScope` roots, checked like any other root. */
   extraRoots?: readonly string[]
 }
 

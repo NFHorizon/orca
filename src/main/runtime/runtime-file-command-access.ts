@@ -13,6 +13,7 @@ import {
   type RuntimeFileCommandHost
 } from './runtime-file-command-host'
 import type { RuntimeFileOpenResult } from '../../shared/runtime-types'
+import type { RuntimeFileStatResult } from '../../shared/runtime-file-contracts'
 import type { RuntimeNavigationTarget } from '../../shared/runtime-navigation'
 import {
   isMobilePreviewableImagePath,
@@ -175,15 +176,20 @@ export class RuntimeFileCommandAccess {
   async statRuntimeFile(
     worktreeSelector: string,
     relativePath: string
-  ): Promise<{ size: number; isDirectory: boolean; mtime: number; ctime?: number }> {
+  ): Promise<RuntimeFileStatResult> {
     const target = await this.resolveFileExplorerPath(worktreeSelector, relativePath)
-    const fileStat = await requireRuntimeFileProvider(target, this.host).stat(target.path)
-    return {
-      size: fileStat.size,
-      isDirectory: fileStat.type === 'directory',
-      mtime: fileStat.mtime,
-      ...(fileStat.ctimeMs === undefined ? {} : { ctime: fileStat.ctimeMs })
-    }
+    return toRuntimeFileStatResult(
+      await requireRuntimeFileProvider(target, this.host).stat(target.path)
+    )
+  }
+}
+
+export function toRuntimeFileStatResult(fileStat: FileStat): RuntimeFileStatResult {
+  return {
+    size: fileStat.size,
+    isDirectory: fileStat.type === 'directory',
+    mtime: fileStat.mtime,
+    ...(fileStat.ctimeMs === undefined ? {} : { ctime: fileStat.ctimeMs })
   }
 }
 

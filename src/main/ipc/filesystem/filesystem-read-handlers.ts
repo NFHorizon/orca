@@ -13,9 +13,11 @@ import { SshHostNotServedError } from '../../providers/ssh-host-not-served-error
 import { resolveRegisteredWorktreePath } from '../registered-worktree-roots-cache'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
 import {
+  isChatVisualFileAccess,
   resolveDesktopAuthorizedPath,
   resolveLocalFileRequestPath
 } from '../local-file-access-resolution'
+import { readChatVisualAccessFile } from '../../native-chat/native-chat-visual-access-read'
 import { isENOENT } from '../filesystem-path-containment'
 import { listMarkdownDocuments } from '../markdown-documents'
 import { getLocalGitOptionsForRegisteredWorktree } from '../local-worktree-runtime-options'
@@ -85,6 +87,9 @@ export function registerFilesystemReadHandlers(context: FilesystemHandlerContext
     ): Promise<LocalFileContent> => {
       if (args.connectionId) {
         throw new SshHostNotServedError(args.connectionId)
+      }
+      if (isChatVisualFileAccess(args.access)) {
+        return { content: await readChatVisualAccessFile(args.filePath), isBinary: false }
       }
       const filePath = await resolveLocalFileRequestPath(args.filePath, args.access, store)
       const media = readMediaPreview(event, args, store)

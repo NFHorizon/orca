@@ -1,11 +1,13 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionRecord } from '../../../../shared/agent-session-record'
 import { agentSessionRecordFixture } from '../../../../shared/agent-session-record.test-fixture'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import { NATIVE_CHAT_VISUAL_MAX_BYTES } from '../../../../shared/native-chat-visual-directive'
 import { nativeChatScratchFolderFor } from '../../../native-chat/native-chat-scratch-folder'
+import { nativeChatVisualRevision } from '../../../native-chat/native-chat-visual-file-read'
 import { ALL_RPC_METHODS } from '.'
 import { STRUCTURED_AGENT_SESSION_VISUAL_METHODS } from './structured-agent-session-visual'
 import {
@@ -17,6 +19,8 @@ import {
 } from './structured-agent-session-rpc.test-fixture'
 
 type CallClient = Parameters<typeof callStructured>[2]
+
+const posixIt = process.platform === 'win32' ? it.skip : it
 
 function call(method: string, params: unknown, client: CallClient) {
   return callStructured(method, params, client, {}, STRUCTURED_AGENT_SESSION_VISUAL_METHODS)
@@ -63,9 +67,11 @@ describe('agentSession.readVisual', () => {
       { sessionId: SESSION, file: 'chart.html' },
       STRUCTURED_CLIENT
     )
-    expect(reply).toMatchObject({
+    expect(reply.ok ? reply.result : null).toEqual({
       ok: true,
-      result: { ok: true, html: '<p>chart</p>', sizeBytes: 12 }
+      html: '<p>chart</p>',
+      revision: nativeChatVisualRevision(Buffer.from('<p>chart</p>')),
+      sizeBytes: 12
     })
   })
 
@@ -91,6 +97,68 @@ describe('agentSession.readVisual', () => {
     expect(typeof againResult === 'object' && againResult !== null && 'html' in againResult).toBe(
       false
     )
+  })
+
+  it('reads from a data directory given relative to the working directory', async () => {
+    await writeVisual('chart.html', '<p>chart</p>')
+    const absolute = stateDirectory
+    stateDirectory = relative(process.cwd(), absolute)
+    try {
+      const reply = await call(
+        'agentSession.readVisual',
+        { sessionId: SESSION, file: 'chart.html' },
+        STRUCTURED_CLIENT
+      )
+      expect(reply).toMatchObject({ ok: true, result: { ok: true, html: '<p>chart</p>' } })
+    } finally {
+      stateDirectory = absolute
+    }
+  })
+
+  it('reports a missing file or a chat with no folder as not_found', async () => {
+    const noFolder = await call(
+      'agentSession.readVisual',
+      { sessionId: SESSION, file: 'chart.html' },
+      STRUCTURED_CLIENT
+    )
+    expect(noFolder).toMatchObject({ ok: true, result: { ok: false, error: 'not_found' } })
+    await writeVisual('other.html', '<p>other</p>')
+    const noFile = await call(
+      'agentSession.readVisual',
+      { sessionId: SESSION, file: 'chart.html' },
+      STRUCTURED_CLIENT
+    )
+    expect(noFile).toMatchObject({ ok: true, result: { ok: false, error: 'not_found' } })
+  })
+
+  it('keeps the protected-read refusals', async () => {
+    await writeVisual('big.html', 'a'.repeat(NATIVE_CHAT_VISUAL_MAX_BYTES + 1))
+    await writeVisual('binary.html', '<\0>')
+    await mkdir(join(nativeChatScratchFolderFor(stateDirectory, SESSION), 'dir.html'))
+    for (const [file, error] of [
+      ['big.html', 'too_large'],
+      ['binary.html', 'not_text'],
+      ['dir.html', 'not_a_file']
+    ]) {
+      const reply = await call(
+        'agentSession.readVisual',
+        { sessionId: SESSION, file },
+        STRUCTURED_CLIENT
+      )
+      expect(reply.ok ? reply.result : null).toEqual({ ok: false, error })
+    }
+  })
+
+  posixIt('refuses a visual that is a symlink', async () => {
+    await writeVisual('real.html', '<p>real</p>')
+    const folder = nativeChatScratchFolderFor(stateDirectory, SESSION)
+    await symlink(join(folder, 'real.html'), join(folder, 'link.html'))
+    const reply = await call(
+      'agentSession.readVisual',
+      { sessionId: SESSION, file: 'link.html' },
+      STRUCTURED_CLIENT
+    )
+    expect(reply.ok ? reply.result : null).toEqual({ ok: false, error: 'outside_folder' })
   })
 
   it('reports a session this host has no record of', async () => {

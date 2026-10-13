@@ -7,6 +7,7 @@ import type { WorktreeRuntimeOwnerState } from './worktree-runtime-owner-state'
 
 const USER_FILE_ACCESS: LocalFileAccess = { kind: 'user-file' }
 const CHAT_IMAGE_ACCESS: LocalFileAccess = { kind: 'chat-image' }
+const CHAT_VISUAL_ACCESS: LocalFileAccess = { kind: 'chat-visual' }
 
 /** For a path the user named by a gesture (click, drop, typed path); never for document content. */
 export function userNamedFileAccess(): LocalFileAccess {
@@ -19,6 +20,14 @@ export function userNamedFileAccess(): LocalFileAccess {
  */
 export function chatImageAccess(): LocalFileAccess {
   return CHAT_IMAGE_ACCESS
+}
+
+/**
+ * For an HTML visual a chat shows by itself. Main reads it only from a chat folder (any chat's)
+ * under the host's chat scratch root, never from a project, and serves no operation but a read.
+ */
+export function chatVisualAccess(): LocalFileAccess {
+  return CHAT_VISUAL_ACCESS
 }
 
 /**

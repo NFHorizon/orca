@@ -11,6 +11,11 @@ export type LocalFileAccess =
   | { kind: 'chat-image' }
   /** A document the user opened: renaming it to any path, or adding files in its own folder. */
   | { kind: 'document-folder'; documentPath: string }
+  /**
+   * An HTML visual a chat shows by itself: read only, and only a visual file directly inside a
+   * chat folder (any chat's) under this host's chat scratch root; never a project file.
+   */
+  | { kind: 'chat-visual' }
 
 /** Main's refusal of a request that resolves outside every root it may serve. */
 export const PATH_OUTSIDE_ALLOWED_DIRECTORIES =
