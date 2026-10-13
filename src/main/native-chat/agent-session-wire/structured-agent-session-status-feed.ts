@@ -20,7 +20,10 @@ import type { AgentChildWorkEvidence } from '../../../shared/agent-status-child-
 import type { AgentChildWorkView } from '../../../shared/agent-status-child-work-view'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { StructuredAgentSessionProviderChild } from './structured-agent-session-host-types'
-import { structuredAgentSessionStatusSummary } from './structured-agent-session-status-summary'
+import {
+  structuredAgentSessionStatusSummary,
+  type StructuredAgentSessionScratchFolders
+} from './structured-agent-session-status-summary'
 import { structuredStatusChildWork } from './structured-agent-session-status-child-work'
 import {
   StructuredAgentSessionJournalProjections,
@@ -68,8 +71,8 @@ export type StructuredAgentSessionStatusFeedDeps = {
   onChildWorkChanged?: (sessionId: string) => void
   /** The session's agent proved a start: its row's phase became `ready`. */
   onAgentStarted?: (sessionId: string) => void
-  /** This host's scratch folder for a chat, published on its row; absent publishes none. */
-  scratchDirectoryFor?: (sessionId: string) => string | undefined
+  /** This host's chat scratch folders, published on each row; absent publishes none. */
+  scratchFolders?: StructuredAgentSessionScratchFolders
 }
 
 export class StructuredAgentSessionStatusFeed {
@@ -232,9 +235,7 @@ export class StructuredAgentSessionStatusFeed {
       state: projection.state,
       stopping: projection.stopping,
       childWork: this.childWorkFields(sessionId, session.params.provider),
-      ...(this.deps.scratchDirectoryFor
-        ? { scratchDirectoryFor: this.deps.scratchDirectoryFor }
-        : {}),
+      ...(this.deps.scratchFolders ? { scratchFolders: this.deps.scratchFolders } : {}),
       now: this.deps.now
     })
     const publication = this.published.get(sessionId)

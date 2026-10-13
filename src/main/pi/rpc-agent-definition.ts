@@ -13,6 +13,8 @@ export const PI_RPC_AGENT: DirectoryAccountAgentDefinition = {
     steering: 'inject',
     approvalEnforcement: 'provider'
   },
+  // Pi has no visuals skill to tell it about the folder.
+  receivesScratchFolder: false,
   restingOptions: {
     acceptsKey: (key) => key === 'model' || key === 'effort',
     fallbackModels: () => null,

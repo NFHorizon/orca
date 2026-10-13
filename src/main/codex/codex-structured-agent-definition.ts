@@ -18,6 +18,7 @@ export const CODEX_STRUCTURED_AGENT: DirectoryAccountAgentDefinition = {
     // Approval and sandbox policy ride on the thread; the app-server enforces them.
     approvalEnforcement: 'provider'
   },
+  receivesScratchFolder: true,
   restingOptions: {
     acceptsKey: isCodexTurnOptionKey,
     // No built-in list: the client fills the current model from its own unknown-model defaults.

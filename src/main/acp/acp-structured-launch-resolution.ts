@@ -186,7 +186,7 @@ export function acpStructuredLaunchPart(
       }
     )
     const cwd = await basis.launchDirectory()
-    const visuals = spec.visualsSkill ? await basis.visuals() : null
+    const visuals = await basis.visuals()
     // Again at every launch: the binary on PATH may have changed since the chat was created.
     const launchVersion = await probeAcpLaunchVersion(
       spec,

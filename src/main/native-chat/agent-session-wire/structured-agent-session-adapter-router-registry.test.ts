@@ -70,6 +70,7 @@ const PILOT: StructuredAgentDefinition = {
     steering: 'queue',
     approvalEnforcement: 'orca'
   },
+  receivesScratchFolder: false,
   restingOptions: {
     acceptsKey: () => false,
     fallbackModels: () => null,

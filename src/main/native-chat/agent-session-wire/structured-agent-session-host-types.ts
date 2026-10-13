@@ -167,8 +167,8 @@ export type StructuredAgentSessionHostDeps = {
    *  removed from. Both production hosts pass one — the desktop and headless `orcad`; absent,
    *  every reader of that store simply lists no structured session. */
   statusSink?: StructuredAgentSessionStatusSink
-  /** Where this host keeps a chat's scratch folder, published on its status and never created by
-   *  that read. Absent on a host that gives chats none, which then publishes none. */
+  /** Where this host keeps a chat's scratch folder, published on the status of a chat whose agent
+   *  receives one and never created by that read. Absent on a host that gives chats none. */
   scratchDirectoryFor?: (sessionId: string) => string
   /** Host model catalog surface; absent means every catalog read answers `unknown`. */
   modelCatalog?: AgentModelCatalogService

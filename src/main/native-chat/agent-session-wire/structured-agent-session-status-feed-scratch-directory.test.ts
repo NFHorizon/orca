@@ -13,6 +13,12 @@ import {
   nativeChatScratchFolderFor,
   nativeChatScratchFolderName
 } from '../native-chat-scratch-folder'
+import { CLAUDE_STRUCTURED_AGENT } from '../../claude/claude-structured-agent-definition'
+import { CODEX_STRUCTURED_AGENT } from '../../codex/codex-structured-agent-definition'
+import { PI_RPC_AGENT } from '../../pi/rpc-agent-definition'
+import { acpStructuredAgentDefinition } from '../../acp/acp-structured-agent-definitions'
+import { acpLaunchSpecFor } from '../../acp/acp-launch-specs'
+import type { StructuredAgentDefinition } from './structured-agent-definition'
 import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
 import { StructuredAgentSessionStatusFeed } from './structured-agent-session-status-feed'
 
@@ -26,6 +32,14 @@ const NATIVE: AgentSessionExecutionLocation = {
   workspaceKind: 'git-worktree'
 }
 const WSL: AgentSessionExecutionLocation = { ...NATIVE, wslDistro: 'Ubuntu' }
+
+const opencode = acpLaunchSpecFor('opencode')
+const DEFINITIONS: readonly StructuredAgentDefinition[] = [
+  CLAUDE_STRUCTURED_AGENT,
+  CODEX_STRUCTURED_AGENT,
+  PI_RPC_AGENT,
+  ...(opencode ? [acpStructuredAgentDefinition(opencode)] : [])
+]
 
 let root: string
 let store: AgentSessionRecordStore
@@ -83,7 +97,14 @@ async function subscribedFeed(
     now: () => NOW,
     ...(options.scratch === false
       ? {}
-      : { scratchDirectoryFor: (sessionId: string) => nativeChatScratchFolderFor(root, sessionId) })
+      : {
+          scratchFolders: {
+            folderFor: (sessionId: string) => nativeChatScratchFolderFor(root, sessionId),
+            receivedBy: (name: string) =>
+              DEFINITIONS.find((definition) => definition.agent === name)?.receivesScratchFolder ===
+              true
+          }
+        })
   })
   const events: AgentSessionStatusEvent[] = []
   feed.subscribe({ id: 'renderer', emit: (event) => events.push(event) })
@@ -109,7 +130,16 @@ async function filesUnder(dir: string): Promise<string[]> {
 }
 
 describe('status feed scratch directory', () => {
-  // Claude, Codex and an ACP agent all get the folder at launch; the field does not branch on agent.
+  it('reads every agent from its real definition', () => {
+    expect(DEFINITIONS.map((definition) => definition.agent)).toEqual([
+      'claude',
+      'codex',
+      'pi',
+      'opencode'
+    ])
+  })
+
+  // The agents whose launches are handed the folder, by their definitions' flag.
   it.each(['claude', 'codex', 'opencode'])(
     'publishes a native %s chat its folder without creating it',
     async (agent) => {
@@ -122,6 +152,13 @@ describe('status feed scratch directory', () => {
       expect(existsSync(nativeChatScratchFolderFor(root, SESSION))).toBe(false)
     }
   )
+
+  it('omits the folder for a Pi chat, which is never handed one', async () => {
+    const { events } = await subscribedFeed(NATIVE, { agent: 'pi' })
+
+    expect(lastSummary(events)).toMatchObject({ sessionId: SESSION, agent: 'pi' })
+    expect(lastSummary(events)).not.toHaveProperty('scratchDirectory')
+  })
 
   it('omits the folder for a WSL chat, whose agent is never launched with it', async () => {
     await reserve(WSL)

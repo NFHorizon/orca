@@ -19,6 +19,7 @@ export const CLAUDE_STRUCTURED_AGENT: DirectoryAccountAgentDefinition = {
     // The permission mode is a launch flag the CLI enforces.
     approvalEnforcement: 'provider'
   },
+  receivesScratchFolder: true,
   restingOptions: {
     acceptsKey: isClaudeStructuredOptionKey,
     fallbackModels: claudeFallbackModelOptions,

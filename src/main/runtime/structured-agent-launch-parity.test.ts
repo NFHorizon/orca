@@ -135,6 +135,7 @@ import {
   LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
   NATIVE_CHAT_SCRATCH_DIR_ENV
 } from '../native-chat/native-chat-visuals-delivery'
+import { nativeChatScratchFolderFor } from '../native-chat/native-chat-scratch-folder'
 import type { StructuredAgentSessionAcquireInput } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import type { JournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database'
@@ -664,6 +665,14 @@ describe.skipIf(process.platform === 'win32')('native-chat launch parity', () =>
           launchPosture: postureOf(capture.launches[0]),
           pinnedLaunchDirectories: pins.map(({ directory }) => normalized(directory))
         }).toMatchSnapshot()
+        // The agent's flag, which its chat status publishes the folder by, is what its launch does.
+        if (!launch.worker) {
+          expect(childOf(spawn!).env[NATIVE_CHAT_SCRATCH_DIR_ENV]).toBe(
+            registration.definition.receivesScratchFolder
+              ? normalized(nativeChatScratchFolderFor(deps.stateDirectory, sessionId))
+              : undefined
+          )
+        }
       } finally {
         structuredWorkerIdentities.forget(workerHandle)
         await adapter.closeAll().catch(() => {})

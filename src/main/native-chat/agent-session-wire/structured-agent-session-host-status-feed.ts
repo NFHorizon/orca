@@ -1,4 +1,5 @@
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
+import type { StructuredAgentRegistry } from './structured-agent-registry'
 import {
   deferredStructuredAgentSessionLogger,
   type StructuredAgentSessionLogger
@@ -17,6 +18,7 @@ export function createStructuredAgentSessionHostStatusFeed(args: {
   now: () => number
   deps: () => {
     store: { getRecord: (sessionId: string) => AgentSessionRecord | null }
+    agents: Pick<StructuredAgentRegistry, 'definition'>
     logger: StructuredAgentSessionLogger
     onSessionStatusChanged?: StructuredAgentSessionStatusFeedDeps['onStatusChanged']
     statusSink?: StructuredAgentSessionStatusSink
@@ -34,7 +36,10 @@ export function createStructuredAgentSessionHostStatusFeed(args: {
     // Resolved per call for the same reason the other deps are: the host builds this feed in a
     // field initializer, before its constructor parameters are assigned.
     statusSink: () => args.deps().statusSink,
-    scratchDirectoryFor: (sessionId) => args.deps().scratchDirectoryFor?.(sessionId),
+    scratchFolders: {
+      folderFor: (sessionId) => args.deps().scratchDirectoryFor?.(sessionId),
+      receivedBy: (agent) => args.deps().agents.definition(agent)?.receivesScratchFolder === true
+    },
     ...(args.onAgentStarted ? { onAgentStarted: args.onAgentStarted } : {}),
     ...(args.onChildWorkChanged ? { onChildWorkChanged: args.onChildWorkChanged } : {})
   })

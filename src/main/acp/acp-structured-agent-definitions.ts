@@ -35,6 +35,8 @@ export function acpStructuredAgentDefinition(spec: AcpLaunchSpec): StructuredAge
       // Orca answers every permission request the agent sends; the agent decides when it asks.
       approvalEnforcement: 'orca'
     },
+    // The folder is named to the agent only by its visuals skill.
+    receivesScratchFolder: spec.visualsSkill !== undefined,
     restingOptions: {
       acceptsKey: isAcpStructuredOptionKey,
       // The agent lists its models over the protocol once it runs; Orca keeps no list of its own.

@@ -11,6 +11,9 @@ import type { AgentSessionModelOption } from '../../../shared/agent-session-wire
 /** `agent` names the Orca agent whose sessions this describes; the storage fields bound its records. */
 export type StructuredAgentDefinition = AgentSessionStoredAgent & {
   capabilities: AgentSessionCapabilities
+  /** Its launches are handed the chat's scratch folder. Fixed per agent: whether one launch
+   *  actually delivers it (the visuals setting, the skill) can change between launches. */
+  receivesScratchFolder: boolean
   /** How a session's options read and change while no child runs. */
   restingOptions: {
     /** Whether the agent takes a pick of this option key. */

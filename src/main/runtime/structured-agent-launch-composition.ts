@@ -141,7 +141,12 @@ async function composedPart<L>(
     baseEnvironment: once(sources.resolveBaseEnvironment),
     launchEnv,
     environment: once(() => sources.resolveAgentEnvironment(definition.agent)),
-    visuals: once(async () => (await sources.prepareVisuals?.(record.sessionId)) ?? null),
+    // The same per-agent flag the chat's status publishes its folder by.
+    visuals: once(async () =>
+      definition.receivesScratchFolder
+        ? ((await sources.prepareVisuals?.(record.sessionId)) ?? null)
+        : null
+    ),
     commandSettings: once(() => sources.resolveCommandSettings?.() ?? {}),
     ...(permissionMode ? { permissionMode } : {})
   }
