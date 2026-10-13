@@ -1,8 +1,11 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { NativeChatVisualFrame } from './NativeChatVisualFrame'
 import { NativeChatVisualUnavailable } from './NativeChatInlineVisual'
 import type { OpenChatVisualTabState } from '../../../../shared/editor-tab-view-types'
-import { useNativeChatVisualDocument } from './use-native-chat-visual-document'
+import {
+  useNativeChatVisualDocument,
+  type NativeChatVisualSource
+} from './use-native-chat-visual-document'
 
 /** A chat visual in its own tab: the same isolated frame as inline, filling the tab. */
 export function NativeChatVisualTab({
@@ -14,11 +17,14 @@ export function NativeChatVisualTab({
   const [retired, setRetired] = useState(false)
   // Why `visual` as refresh key: each "Open in new tab" stores a fresh record, so a tab already on
   // screen re-asks the host; an unchanged revision keeps the page as it is.
-  const state = useNativeChatVisualDocument(
-    { target: visual.target, sessionId: visual.sessionId, file: visual.file },
-    true,
-    visual
+  const source = useMemo<NativeChatVisualSource>(
+    () => ({
+      kind: 'legacy',
+      identity: { target: visual.target, sessionId: visual.sessionId, file: visual.file }
+    }),
+    [visual.file, visual.sessionId, visual.target]
   )
+  const state = useNativeChatVisualDocument(source, true, visual)
 
   if (retired || state.status === 'unavailable') {
     return (

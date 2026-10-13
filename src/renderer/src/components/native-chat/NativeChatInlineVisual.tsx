@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { SquareArrowOutUpRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -6,8 +6,51 @@ import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import { NATIVE_CHAT_VISUAL_RESERVED_HEIGHT, NativeChatVisualFrame } from './NativeChatVisualFrame'
 import { observeTranscriptVisibility } from './NativeChatTranscriptChrome'
-import type { NativeChatVisualOwner } from './native-chat-visual-owner'
-import { useNativeChatVisualDocument } from './use-native-chat-visual-document'
+import {
+  useNativeChatVisualReading,
+  type NativeChatVisualOwner,
+  type NativeChatVisualReading
+} from './native-chat-visual-owner'
+import {
+  useNativeChatVisualDocument,
+  type NativeChatVisualSource
+} from './use-native-chat-visual-document'
+import { nativeChatVisualHostPath } from '../../../../shared/native-chat-visual-host-path'
+import {
+  markNativeChatVisualReads,
+  type NativeChatVisualFile
+} from './native-chat-visual-path-read-client'
+import { useNativeChatVisualSavedMark } from './native-chat-visual-refresh'
+
+const subscribeToNothing = (): (() => void) => () => {}
+const noMark = (): number => 0
+
+type NativeChatVisualHostFile =
+  | Extract<NativeChatVisualSource, { kind: 'legacy' | 'pending' }>
+  | { kind: 'file'; file: NativeChatVisualFile }
+
+/** The visual's file on the chat's own host, or the older endpoint where the host has no folder. */
+function useNativeChatVisualHostFile(
+  owner: NativeChatVisualOwner,
+  reading: NativeChatVisualReading | null,
+  file: string
+): NativeChatVisualHostFile {
+  const route = reading?.route ?? null
+  return useMemo(() => {
+    const legacy: NativeChatVisualHostFile = {
+      kind: 'legacy',
+      identity: { target: owner.target, sessionId: owner.sessionId, file }
+    }
+    if (route === null || route.kind === 'legacy') {
+      return legacy
+    }
+    if (route.kind === 'pending') {
+      return { kind: 'pending' }
+    }
+    const path = nativeChatVisualHostPath(route.scratchDirectory, file)
+    return path === null ? legacy : { kind: 'file', file: { target: owner.target, path } }
+  }, [file, owner.sessionId, owner.target, route])
+}
 
 export function NativeChatVisualUnavailable(): React.JSX.Element {
   return (
@@ -32,26 +75,49 @@ export function NativeChatInlineVisual({
 }): React.JSX.Element {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const [near, setNear] = useState(false)
+  const [revealedMark, setRevealedMark] = useState(0)
   const [retired, setRetired] = useState(false)
   const openChatVisualTab = useAppStore((state) => state.openChatVisualTab)
-  const state = useNativeChatVisualDocument(
-    { target: owner.target, sessionId: owner.sessionId, file },
-    near
+  const reading = useNativeChatVisualReading()
+  const hostFile = useNativeChatVisualHostFile(owner, reading, file)
+  const chatRefreshMark = useSyncExternalStore(
+    reading?.refresh.subscribe ?? subscribeToNothing,
+    reading?.refresh.mark ?? noMark,
+    reading?.refresh.mark ?? noMark
   )
+  const savedMark = useNativeChatVisualSavedMark(hostFile.kind === 'file' ? hostFile.file : null)
+  // Marks only grow, so the largest is the latest trigger.
+  const freshAfter = Math.max(chatRefreshMark, savedMark, revealedMark)
+  const source = useMemo<NativeChatVisualSource>(
+    () => (hostFile.kind === 'file' ? { ...hostFile, freshAfter } : hostFile),
+    [freshAfter, hostFile]
+  )
+  const state = useNativeChatVisualDocument(source, near)
+  const boxShown = !retired && state.status !== 'unavailable'
 
   useEffect(() => {
     const element = boxRef.current
-    if (!element || near) {
+    if (!element || !boxShown) {
       return
     }
+    let seen = false
+    let hidden = false
     return observeTranscriptVisibility(element, (visible) => {
-      if (visible) {
-        setNear(true)
+      if (!visible) {
+        hidden = seen
+        return
       }
+      setNear(true)
+      // Brought back into view after being scrolled away or hidden: the file may have changed.
+      if (hidden) {
+        setRevealedMark(markNativeChatVisualReads())
+      }
+      seen = true
+      hidden = false
     })
-  }, [near])
+  }, [boxShown])
 
-  if (retired || state.status === 'unavailable') {
+  if (!boxShown) {
     return <NativeChatVisualUnavailable />
   }
   const label = title ?? file

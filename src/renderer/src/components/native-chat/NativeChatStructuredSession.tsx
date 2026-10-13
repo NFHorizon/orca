@@ -24,6 +24,7 @@ import { LinkActionPopover } from '@/components/link-actions/LinkActionPopover'
 import { useNativeChatLinkActions } from './use-native-chat-link-actions'
 import { useNativeChatFileLinkContext } from './use-native-chat-file-link-context'
 import { useRecheckNativeChatFileLinksWhenTurnEnds } from './use-native-chat-file-link-existence'
+import { useRefreshNativeChatVisualsWhenTurnEnds } from './native-chat-visual-owner'
 import { useNativeChatTabOwnerWorktreeId } from './use-native-chat-tab-owner'
 import { useStructuredAgentSession } from './use-structured-agent-session'
 import { useNativeChatImageRuntimeContext } from './native-chat-image-runtime-context'
@@ -94,6 +95,7 @@ export function NativeChatStructuredSession(
     ...(provisionalLaunch.launch ? { launch: provisionalLaunch.launch } : {})
   })
   useRecheckNativeChatFileLinksWhenTurnEnds(controller.isWorking)
+  useRefreshNativeChatVisualsWhenTurnEnds(controller.isWorking)
   const stopControls = nativeChatStructuredStopControls(controller, hostExecution.stopping)
   const launchDraftSignal = useNativeChatLaunchDraftSignal({
     terminalTabId: props.tabId,
