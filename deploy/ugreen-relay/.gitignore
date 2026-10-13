@@ -1,0 +1,5 @@
+.env
+letsencrypt/
+certbot-work/
+certbot-logs/
+acme-webroot/

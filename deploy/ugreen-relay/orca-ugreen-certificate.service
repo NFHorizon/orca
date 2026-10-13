@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew Orca relay IP certificate
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /volume1/orca-relay/source/deploy/ugreen-relay/renew-certificate.sh
