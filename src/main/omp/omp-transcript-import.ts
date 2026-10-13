@@ -5,9 +5,10 @@ import type { StructuredAgentTranscriptImport } from '../native-chat/structured-
 export const OMP_TRANSCRIPT_IMPORT: StructuredAgentTranscriptImport = {
   accountHomeCandidates: ({ selectedAccountHomePath }) => [selectedAccountHomePath],
   // Where OMP itself keeps the account's sessions, which is not always under it (XDG_DATA_HOME).
-  findTranscript: async ({ providerSessionId, accountHomePath }) => {
+  findTranscript: async ({ providerSessionId, accountHomePath, launchEnv }) => {
     const sessionsDir = resolveOmpSessionsDir({
-      env: { ...process.env, PI_CODING_AGENT_DIR: accountHomePath }
+      env: { ...launchEnv, PI_CODING_AGENT_DIR: accountHomePath },
+      homeDir: launchEnv.HOME ?? launchEnv.USERPROFILE
     })
     return sessionsDir
       ? resolveSessionFilePath('omp', providerSessionId, { ompSessionsDir: sessionsDir })

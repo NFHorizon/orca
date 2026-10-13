@@ -124,7 +124,11 @@ export async function resolveStructuredAgentSessionAdoption(input: {
   resolveTranscript: (args: {
     providerSessionId: string
     accountHomePath: string
+    launchEnv: NodeJS.ProcessEnv
+    workspaceCwd: string
   }) => Promise<string | null>
+  launchEnv: NodeJS.ProcessEnv
+  workspaceCwd: string
 }): Promise<StructuredAgentSessionAdoption> {
   const seen = new Set<string>()
   for (const accountHomePath of input.candidateAccountHomes) {
@@ -135,7 +139,9 @@ export async function resolveStructuredAgentSessionAdoption(input: {
     seen.add(trimmed)
     const transcriptPath = await input.resolveTranscript({
       providerSessionId: input.providerSessionId,
-      accountHomePath: trimmed
+      accountHomePath: trimmed,
+      launchEnv: input.launchEnv,
+      workspaceCwd: input.workspaceCwd
     })
     if (transcriptPath) {
       return { accountHomePath: trimmed, transcriptPath }

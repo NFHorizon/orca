@@ -10,6 +10,7 @@ import { isNativeLocalLocation, LOCAL_EXECUTION_HOST_ID } from '../../shared/exe
 import { getLocalProjectWorktreeGitOptions } from '../project-runtime-git-options'
 import type { AgentSessionAttachParams } from '../native-chat/agent-session-wire/structured-agent-session-attach'
 import { resolveTuiAgentLaunchEnv } from '../../shared/tui-agent-launch-defaults'
+import { resolveHostAgentBaseEnvironment } from './structured-agent-shell-environment'
 import { resolveHostStructuredAgentCreateSupport } from './structured-agent-launch-support'
 import { structuredAgentRuntimeRegistration } from './structured-agent-runtime-registrations'
 import { resolveStructuredLaunchSeedOptions } from '../../shared/native-chat-session-option-defaults'
@@ -246,7 +247,9 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
             transcriptImport,
             providerSessionId: input.resumeFrom.providerSessionId,
             selfSessionId: input.envelope.sessionId,
-            selectedAccountHomePath: selectedAccountHome.path
+            selectedAccountHomePath: selectedAccountHome.path,
+            launchEnv: { ...(await resolveHostAgentBaseEnvironment(settings)), ...launchEnv },
+            workspaceCwd: (await this.resolveRuntimeFileTarget(input.worktree)).worktree.path
           })
         : null
     return {

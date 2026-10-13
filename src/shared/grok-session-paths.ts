@@ -120,6 +120,20 @@ export function resolveGrokChatHistoryPathSync(args: {
   return null
 }
 
+/** Async exact-cwd lookup for host-owned workspace paths before the bounded ID scan. */
+export async function findGrokChatHistoryByCwd(args: {
+  sessionId: string
+  cwd: string
+  sessionsDir: string
+}): Promise<string | null> {
+  for (const candidate of buildGrokChatHistoryPathCandidates(args)) {
+    if (await isSafeChatHistoryFile(args.sessionsDir, candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
 type GrokSessionDirectoryEntry = {
   name: string
   isDirectory(): boolean

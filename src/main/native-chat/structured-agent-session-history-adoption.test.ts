@@ -191,7 +191,9 @@ describe('resolveStructuredAgentSessionAdoption', () => {
       resolveStructuredAgentSessionAdoption({
         providerSessionId: 'thread-1',
         candidateAccountHomes: ['/home/dev/.orca-codex', '/home/dev/.codex', '/never/probed'],
-        resolveTranscript
+        resolveTranscript,
+        launchEnv: {},
+        workspaceCwd: '/repo'
       })
     ).resolves.toEqual({
       accountHomePath: '/home/dev/.codex',
@@ -207,7 +209,9 @@ describe('resolveStructuredAgentSessionAdoption', () => {
       resolveStructuredAgentSessionAdoption({
         providerSessionId: 'session-1',
         candidateAccountHomes: ['', '   ', '/home/dev/.claude', ' /home/dev/.claude ', ''],
-        resolveTranscript
+        resolveTranscript,
+        launchEnv: {},
+        workspaceCwd: '/repo'
       })
     ).rejects.toThrow('agent_session_identity_required')
     expect(resolveTranscript.mock.calls.map(([args]) => args.accountHomePath)).toEqual([
@@ -221,7 +225,9 @@ describe('resolveStructuredAgentSessionAdoption', () => {
       resolveStructuredAgentSessionAdoption({
         providerSessionId: 'session-1',
         candidateAccountHomes: ['/home/dev/.claude-work', '/home/dev/.claude'],
-        resolveTranscript: async () => null
+        resolveTranscript: async () => null,
+        launchEnv: {},
+        workspaceCwd: '/repo'
       })
     ).rejects.toThrow('agent_session_identity_required')
   })
