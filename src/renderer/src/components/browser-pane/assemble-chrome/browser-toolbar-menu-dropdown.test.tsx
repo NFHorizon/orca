@@ -2,7 +2,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createRef, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { BrowserPageSourceActions } from './browser-toolbar-menu-dropdown'
 
 vi.mock('@/components/ui/dropdown-menu', () => {
   const passthrough = ({ children }: { children?: ReactNode }): ReactNode => children
@@ -35,7 +34,7 @@ vi.mock('@/store', () => ({ useAppStore: { getState: vi.fn() } }))
 
 import { BrowserToolbarMenuDropdown } from './browser-toolbar-menu-dropdown'
 
-function renderMenu(sourceActions?: BrowserPageSourceActions | null): void {
+function renderMenu(onOpenSourceFile?: (() => void) | null): void {
   render(
     <BrowserToolbarMenuDropdown
       menuOpen
@@ -51,7 +50,7 @@ function renderMenu(sourceActions?: BrowserPageSourceActions | null): void {
       onImportFromFile={vi.fn()}
       viewportPresetId={null}
       onApplyViewportPreset={vi.fn()}
-      sourceActions={sourceActions}
+      onOpenSourceFile={onOpenSourceFile}
       overflow={{
         triggerRef: createRef(),
         tools: [],
@@ -64,21 +63,18 @@ function renderMenu(sourceActions?: BrowserPageSourceActions | null): void {
 
 afterEach(cleanup)
 
-describe('browser menu source actions', () => {
-  it('offers the source file and devtools for a local file page', () => {
-    const sourceActions = { onOpenSource: vi.fn(), onOpenDevTools: vi.fn() }
-    renderMenu(sourceActions)
+describe('browser menu source file row', () => {
+  it('offers the source file for a local HTML page', () => {
+    const onOpenSourceFile = vi.fn()
+    renderMenu(onOpenSourceFile)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open source file' }))
-    expect(sourceActions.onOpenSource).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Open browser devtools' }))
-    expect(sourceActions.onOpenDevTools).toHaveBeenCalledTimes(1)
+    expect(onOpenSourceFile).toHaveBeenCalledTimes(1)
   })
 
-  it('adds neither row for other pages, whose toolbar button already opens devtools', () => {
+  it('adds no row for other pages', () => {
     renderMenu(null)
 
     expect(screen.queryByRole('button', { name: 'Open source file' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Open browser devtools' })).toBeNull()
   })
 })

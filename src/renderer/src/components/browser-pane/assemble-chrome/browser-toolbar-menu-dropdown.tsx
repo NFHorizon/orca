@@ -1,13 +1,4 @@
-import {
-  Check,
-  Ellipsis,
-  FileCode2,
-  Import,
-  Monitor,
-  Plus,
-  Settings,
-  SquareCode
-} from 'lucide-react'
+import { Check, Ellipsis, FileCode2, Import, Monitor, Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -44,12 +35,6 @@ import {
   type BrowserChromeOverflowMenuProps
 } from './browser-chrome-folded-tools'
 
-/** A local file page's source file plus its devtools, which the toolbar button no longer opens. */
-export type BrowserPageSourceActions = {
-  onOpenSource: () => void
-  onOpenDevTools: () => void
-}
-
 type BrowserToolbarMenuDropdownProps = {
   menuOpen: boolean
   onMenuOpenChange: (open: boolean) => void
@@ -64,7 +49,7 @@ type BrowserToolbarMenuDropdownProps = {
   onImportFromFile: () => void
   viewportPresetId: BrowserViewportPresetId | null
   onApplyViewportPreset: (nextId: BrowserViewportPresetId | null) => void
-  sourceActions?: BrowserPageSourceActions | null
+  onOpenSourceFile?: (() => void) | null
   overflow: BrowserChromeOverflowMenuProps
 }
 
@@ -82,7 +67,7 @@ export function BrowserToolbarMenuDropdown({
   onImportFromFile,
   viewportPresetId,
   onApplyViewportPreset,
-  sourceActions = null,
+  onOpenSourceFile = null,
   overflow
 }: BrowserToolbarMenuDropdownProps): React.JSX.Element {
   return (
@@ -110,20 +95,13 @@ export function BrowserToolbarMenuDropdown({
           tools={overflow.tools}
           deferUntilClose={overflow.deferUntilClose}
         />
-        {sourceActions ? (
+        {onOpenSourceFile ? (
           <>
-            <DropdownMenuItem onSelect={sourceActions.onOpenSource}>
+            <DropdownMenuItem onSelect={onOpenSourceFile}>
               <FileCode2 className="mr-2 size-3.5" />
               {translate(
                 'auto.components.editor.HtmlDocPreview.openSourceControl',
                 'Open source file'
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={sourceActions.onOpenDevTools}>
-              <SquareCode className="mr-2 size-3.5" />
-              {translate(
-                'auto.components.browser.pane.BrowserPane.ec75d0c412',
-                'Open browser devtools'
               )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />

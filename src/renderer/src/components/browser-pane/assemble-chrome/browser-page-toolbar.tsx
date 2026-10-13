@@ -121,21 +121,15 @@ export function BrowserPageToolbar({
       : browserTourStep === 1
         ? ('annotate' as const)
         : undefined
-  const workspaceOwnedHere = useAppStore((state) =>
-    canOpenBrowserFileInWorkspaceEditor(state, worktreeId)
+  const localHtmlFilePath = getShareableBrowserArtifactFile(currentBrowserUrl)?.filePath ?? null
+  // Why the URL check first: every other page skips the workspace-owner lookup on each store write.
+  const canOpenSourceFile = useAppStore(
+    (state) => localHtmlFilePath !== null && canOpenBrowserFileInWorkspaceEditor(state, worktreeId)
   )
-  const sourceFilePath = workspaceOwnedHere
-    ? (getShareableBrowserArtifactFile(currentBrowserUrl)?.filePath ?? null)
-    : null
-  const openDevTools = (): void => void window.api.browser.openDevTools({ browserPageId })
-  // Why: a local HTML page's source is its file, so the source button opens it like the document
-  // preview does; devtools stay one click away in the overflow menu.
-  const sourceActions = sourceFilePath
-    ? {
-        onOpenSource: () => void openBrowserFileSource(worktreeId, sourceFilePath),
-        onOpenDevTools: openDevTools
-      }
-    : null
+  const openSourceFile =
+    canOpenSourceFile && localHtmlFilePath !== null
+      ? () => void openBrowserFileSource(worktreeId, localHtmlFilePath)
+      : null
 
   return (
     <BrowserChromeToolbar
@@ -226,24 +220,13 @@ export function BrowserPageToolbar({
             }
           : undefined
       }
-      viewSource={
-        sourceActions
-          ? {
-              onSelect: sourceActions.onOpenSource,
-              label: translate(
-                'auto.components.editor.HtmlDocPreview.openSourceControl',
-                'Open source file'
-              ),
-              alreadyInOverflowMenu: true
-            }
-          : {
-              onSelect: openDevTools,
-              label: translate(
-                'auto.components.browser.pane.BrowserPane.ec75d0c412',
-                'Open browser devtools'
-              )
-            }
-      }
+      viewSource={{
+        onSelect: () => void window.api.browser.openDevTools({ browserPageId }),
+        label: translate(
+          'auto.components.browser.pane.BrowserPane.ec75d0c412',
+          'Open browser devtools'
+        )
+      }}
       openExternal={{
         onSelect: () => {
           if (!externalUrl) {
@@ -266,7 +249,7 @@ export function BrowserPageToolbar({
           viewportPresetId={viewportPresetId}
           onDestroyWebview={() => destroyPersistentWebview(browserPageId)}
           isActive={isActive}
-          sourceActions={sourceActions}
+          onOpenSourceFile={openSourceFile}
           overflow={overflow}
         />
       )}

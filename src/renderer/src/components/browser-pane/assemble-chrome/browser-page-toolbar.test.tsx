@@ -3,16 +3,16 @@ import { cleanup, render } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserChromeToolAction } from './browser-chrome-toolbar'
-import type { BrowserPageSourceActions } from './browser-toolbar-menu-dropdown'
 import type { GrabModeHook } from '../annotate/useGrabMode'
 
 const mocks = vi.hoisted(() => {
   const captured: {
     viewSource: BrowserChromeToolAction | null
-    sourceActions: BrowserPageSourceActions | null | undefined
-  } = { viewSource: null, sourceActions: undefined }
+    onOpenSourceFile: (() => void) | null | undefined
+  } = { viewSource: null, onOpenSourceFile: undefined }
   return {
     workspaceOwnedHere: true,
+    canOpen: vi.fn(),
     openBrowserFileSource: vi.fn(),
     openDevTools: vi.fn(),
     captured
@@ -29,13 +29,13 @@ vi.mock('./browser-chrome-toolbar', () => ({
   }
 }))
 vi.mock('./BrowserToolbarMenu', () => ({
-  BrowserToolbarMenu: (props: { sourceActions?: BrowserPageSourceActions | null }) => {
-    mocks.captured.sourceActions = props.sourceActions
+  BrowserToolbarMenu: (props: { onOpenSourceFile?: (() => void) | null }) => {
+    mocks.captured.onOpenSourceFile = props.onOpenSourceFile
     return null
   }
 }))
 vi.mock('../navigate/browser-file-editor-open', () => ({
-  canOpenBrowserFileInWorkspaceEditor: () => mocks.workspaceOwnedHere,
+  canOpenBrowserFileInWorkspaceEditor: mocks.canOpen,
   openBrowserFileSource: mocks.openBrowserFileSource
 }))
 vi.mock('@/store', () => ({
@@ -115,7 +115,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.workspaceOwnedHere = true
   mocks.captured.viewSource = null
-  mocks.captured.sourceActions = undefined
+  mocks.captured.onOpenSourceFile = undefined
+  mocks.canOpen.mockImplementation(() => mocks.workspaceOwnedHere)
   // Why defineProperty: the test supplies only the one preload method the toolbar calls.
   Object.defineProperty(window, 'api', {
     value: { browser: { openDevTools: mocks.openDevTools } },
@@ -125,30 +126,25 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
-describe('BrowserPageToolbar source action', () => {
-  it('opens a local HTML page’s file from the source button and keeps devtools in the menu', () => {
+describe('BrowserPageToolbar source file action', () => {
+  it('offers a local HTML page’s file in the menu and keeps devtools on the button', () => {
     renderToolbar('file:///Users/ana/Design%20Review.html')
 
-    expect(mocks.captured.viewSource).toMatchObject({
-      label: 'Open source file',
-      alreadyInOverflowMenu: true
-    })
-    mocks.captured.viewSource?.onSelect()
+    mocks.captured.onOpenSourceFile?.()
     expect(mocks.openBrowserFileSource).toHaveBeenCalledWith(
       'wt-1',
       '/Users/ana/Design Review.html'
     )
 
-    mocks.captured.sourceActions?.onOpenSource()
-    expect(mocks.openBrowserFileSource).toHaveBeenCalledTimes(2)
-    mocks.captured.sourceActions?.onOpenDevTools()
+    expect(mocks.captured.viewSource?.label).toBe('Open browser devtools')
+    mocks.captured.viewSource?.onSelect()
     expect(mocks.openDevTools).toHaveBeenCalledWith({ browserPageId: 'page-1' })
   })
 
   it('opens a Windows drive page by its Windows path', () => {
     renderToolbar('file:///C:/site/index.htm')
 
-    mocks.captured.viewSource?.onSelect()
+    mocks.captured.onOpenSourceFile?.()
     expect(mocks.openBrowserFileSource).toHaveBeenCalledWith('wt-1', 'C:\\site\\index.htm')
   })
 
@@ -156,21 +152,19 @@ describe('BrowserPageToolbar source action', () => {
     ['a web page', 'https://example.com/index.html'],
     ['a local file that is not HTML', 'file:///Users/ana/notes.txt'],
     ['a blank tab', 'about:blank']
-  ])('keeps devtools as the source button for %s', (_case, url) => {
+  ])('offers no file action for %s, without looking up the workspace owner', (_case, url) => {
     renderToolbar(url)
 
+    expect(mocks.captured.onOpenSourceFile).toBeNull()
+    expect(mocks.canOpen).not.toHaveBeenCalled()
     expect(mocks.captured.viewSource?.label).toBe('Open browser devtools')
-    expect(mocks.captured.sourceActions).toBeNull()
-    mocks.captured.viewSource?.onSelect()
-    expect(mocks.openDevTools).toHaveBeenCalledWith({ browserPageId: 'page-1' })
-    expect(mocks.openBrowserFileSource).not.toHaveBeenCalled()
   })
 
   it('offers no file action in a workspace this computer does not own', () => {
     mocks.workspaceOwnedHere = false
     renderToolbar('file:///Users/ana/report.html')
 
+    expect(mocks.captured.onOpenSourceFile).toBeNull()
     expect(mocks.captured.viewSource?.label).toBe('Open browser devtools')
-    expect(mocks.captured.sourceActions).toBeNull()
   })
 })
