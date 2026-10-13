@@ -1,11 +1,14 @@
-// How a chat's visuals folder dies. The host never deletes a chat record, so no deletion event
+// How a chat's scratch folder dies. The host never deletes a chat record, so no deletion event
 // exists to hang cleanup on; instead each folder's life is re-derived from the records every run:
 //   1. a folder no chat record (readable or not) maps to is removed, so any future record
 //      deletion cleans up for free;
 //   2. a folder whose chat went unused for the retention window is removed: its newest journal row
 //      and its newest file are both older than that, and the host holds no execution for the chat.
 // Rule 2 decides again under the chat's lifecycle lock, so a start accepted after the first look
-// keeps the folder. Anything unproven is kept. A failure is logged and never blocks anything else.
+// keeps the folder. Anything else directly under a root (a file written there, a folder not named
+// for a chat) belongs to no chat and goes once it is older than the window. Folders under the
+// pre-rename root follow the same rules, so they still die once nothing reads them. Anything
+// unproven is kept. A failure is logged and never blocks anything else.
 
 import type { Dirent } from 'node:fs'
 import { lstat, opendir, readdir, rename, rm } from 'node:fs/promises'
@@ -13,9 +16,13 @@ import { join } from 'node:path'
 import { isDefinitiveAbsence } from '../../shared/definitive-filesystem-absence'
 import { yieldToEventLoop } from '../../shared/event-loop-yield'
 import type { StructuredAgentSessionLogger } from './agent-session-wire/structured-agent-session-logger'
-import { nativeChatVisualsFolderName, nativeChatVisualsRootFor } from './native-chat-visuals-folder'
+import {
+  legacyNativeChatVisualsRootFor,
+  nativeChatScratchFolderName,
+  nativeChatScratchRootFor
+} from './native-chat-scratch-folder'
 
-/** How long a chat's visuals outlive its last use. */
+/** How long a chat's scratch files outlive its last use. */
 export const NATIVE_CHAT_VISUALS_RETENTION_MS = 30 * 24 * 60 * 60_000
 
 export type NativeChatVisualsSweepDeps = {
@@ -34,7 +41,7 @@ export type NativeChatVisualsSweepDeps = {
 
 export type NativeChatVisualsSweepResult = { removed: number; failed: number }
 
-// Only names this host minted: anything else in the folder is never touched.
+// The names this host mints for a chat's folder.
 const FOLDER_NAME = /^[0-9a-f]{32}$/
 // An expired folder is renamed under the chat's lock and deleted after it, so the lock is held for
 // one rename; a deletion that fails or is cut short leaves this name for a later run.
@@ -46,9 +53,10 @@ const MAX_REMOVALS_PER_RUN = 200
 const MAX_ENTRIES_PER_FOLDER = 256
 const YIELD_EVERY = 32
 
+type RemovalReason = 'no-record' | 'expired' | 'inactive' | 'stray'
+
 type SweepRun = {
   deps: NativeChatVisualsSweepDeps
-  root: string
   cutoff: number
   remove: (path: string) => Promise<void>
   result: NativeChatVisualsSweepResult
@@ -74,67 +82,70 @@ export async function sweepNativeChatVisualsFolders(
   isStopped: () => boolean = () => false
 ): Promise<NativeChatVisualsSweepResult> {
   const result = { removed: 0, failed: 0 }
-  const root = nativeChatVisualsRootFor(deps.stateDirectory)
   // Listed before the records are read: a folder is created only after its chat's record, so
   // every folder seen here already has its record in the snapshot below.
-  const entries = await listFolders(root)
+  const entries: { root: string; entry: Dirent }[] = []
+  for (const root of [
+    nativeChatScratchRootFor(deps.stateDirectory),
+    legacyNativeChatVisualsRootFor(deps.stateDirectory)
+  ]) {
+    for (const entry of await listFolders(root)) {
+      entries.push({ root, entry })
+    }
+  }
   const held = deps.listHeldSessionIds()
   if (!held || entries.length === 0) {
     return result
   }
   const sessionByFolder = new Map(
-    held.map((sessionId) => [nativeChatVisualsFolderName(sessionId), sessionId])
+    held.map((sessionId) => [nativeChatScratchFolderName(sessionId), sessionId])
   )
   const run: SweepRun = {
     deps,
-    root,
     cutoff: (deps.now?.() ?? Date.now()) - NATIVE_CHAT_VISUALS_RETENTION_MS,
     remove: deps.remove ?? ((path: string) => rm(path, { recursive: true, force: true })),
     result
   }
   let visited = 0
-  for (const entry of entries) {
+  for (const { root, entry } of entries) {
     if (isStopped() || result.removed + result.failed >= MAX_REMOVALS_PER_RUN) {
       break
     }
     if (++visited % YIELD_EVERY === 0) {
       await yieldToEventLoop()
     }
-    // A Dirent describes the entry itself, so a symlink is never followed or removed here.
-    if (!entry.isDirectory()) {
-      continue
+    const path = join(root, entry.name)
+    // A Dirent describes the entry itself, so a symlink is never taken for a chat's folder.
+    if (entry.isDirectory() && EXPIRED_NAME.test(entry.name)) {
+      await removeEntry(run, path, 'expired')
+    } else if (entry.isDirectory() && FOLDER_NAME.test(entry.name)) {
+      const sessionId = sessionByFolder.get(entry.name)
+      await (sessionId === undefined
+        ? removeEntry(run, path, 'no-record')
+        : expireUnusedFolder(run, path, sessionId))
+    } else {
+      await removeStrayEntry(run, path)
     }
-    if (EXPIRED_NAME.test(entry.name)) {
-      await removeFolder(run, entry.name, 'expired')
-      continue
-    }
-    if (!FOLDER_NAME.test(entry.name)) {
-      continue
-    }
-    const sessionId = sessionByFolder.get(entry.name)
-    await (sessionId === undefined
-      ? removeFolder(run, entry.name, 'no-record')
-      : expireUnusedFolder(run, entry.name, sessionId))
   }
   return result
 }
 
-async function removeFolder(
+/** `rm` takes a symlink for the link itself, so a removal never reaches past the root. */
+async function removeEntry(
   run: SweepRun,
-  name: string,
-  reason: 'no-record' | 'expired' | 'inactive',
+  path: string,
+  reason: RemovalReason,
   sessionId?: string
 ): Promise<void> {
   try {
-    await run.remove(join(run.root, name))
+    await run.remove(path)
     run.result.removed += 1
   } catch (error) {
     reportFailure(run, reason, sessionId, error)
   }
 }
 
-async function expireUnusedFolder(run: SweepRun, name: string, sessionId: string): Promise<void> {
-  const folder = join(run.root, name)
+async function expireUnusedFolder(run: SweepRun, folder: string, sessionId: string): Promise<void> {
   try {
     if (!(await isUnused(run, folder, sessionId))) {
       return
@@ -155,7 +166,24 @@ async function expireUnusedFolder(run: SweepRun, name: string, sessionId: string
     }
     return
   }
-  await removeFolder(run, name + EXPIRED_SUFFIX, 'inactive', sessionId)
+  await removeEntry(run, folder + EXPIRED_SUFFIX, 'inactive', sessionId)
+}
+
+/** An entry no chat owns: removed once it, or for a folder its newest entry, is past the window. */
+async function removeStrayEntry(run: SweepRun, path: string): Promise<void> {
+  try {
+    const self = await lstat(path)
+    const newest = self.isDirectory() ? await newestEntryTime(path) : self.mtimeMs
+    if (newest >= run.cutoff) {
+      return
+    }
+  } catch (error) {
+    if (!isDefinitiveAbsence(error)) {
+      reportFailure(run, 'stray', undefined, error)
+    }
+    return
+  }
+  await removeEntry(run, path, 'stray')
 }
 
 /** Files first: the journal is asked only about a folder whose files already look unused. */
@@ -197,7 +225,7 @@ async function newestEntryTime(folder: string): Promise<number> {
 
 function reportFailure(
   run: SweepRun,
-  reason: 'no-record' | 'expired' | 'inactive',
+  reason: RemovalReason,
   sessionId: string | undefined,
   error: unknown
 ): void {
