@@ -1,17 +1,29 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  lutimesSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
-import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { StructuredAgentSessionLogger } from './agent-session-wire/structured-agent-session-logger'
 import { nativeChatVisualsFolderFor, nativeChatVisualsRootFor } from './native-chat-visuals-folder'
 import {
+  NATIVE_CHAT_VISUALS_RETENTION_MS,
   scheduleNativeChatVisualsSweep,
   sweepNativeChatVisualsFolders,
-  type NativeChatVisualsSweepDeps,
-  type NativeChatVisualsWorkspaceVerdict
+  type NativeChatVisualsSweepDeps
 } from './native-chat-visuals-sweep'
+
+const NOW = Date.UTC(2026, 9, 12)
+const OLD = NOW - NATIVE_CHAT_VISUALS_RETENTION_MS - 60_000
+const RECENT = NOW - 60_000
 
 const scratch: string[] = []
 afterEach(() => {
@@ -27,38 +39,45 @@ function stateDirectory(): string {
   return dir
 }
 
-function visualsFor(state: string, sessionId: string): string {
+function setTime(path: string, at: number): void {
+  utimesSync(path, at / 1000, at / 1000)
+}
+
+/** A chat folder whose file and folder were last changed at `at`. */
+function visualsFor(state: string, sessionId: string, at = RECENT): string {
   const folder = nativeChatVisualsFolderFor(state, sessionId)
   mkdirSync(folder, { recursive: true })
-  writeFileSync(join(folder, 'chart.html'), '<p>chart</p>')
+  const file = join(folder, 'chart.html')
+  writeFileSync(file, '<p>chart</p>')
+  setTime(file, at)
+  setTime(folder, at)
   return folder
 }
 
-const location = (workspaceId: string): AgentSessionExecutionLocation => ({
-  executionHostId: LOCAL_EXECUTION_HOST_ID,
-  wslDistro: null,
-  workspaceId,
-  workspaceKind: 'git-worktree'
-})
+type TestDeps = NativeChatVisualsSweepDeps & {
+  logger: { warn: ReturnType<typeof vi.fn<StructuredAgentSessionLogger['warn']>> }
+  lastJournalActivityAt: ReturnType<typeof vi.fn<(sessionId: string) => number | null>>
+}
 
+/** Every chat in `held` is at rest unless listed in `executing`; journal times default to none. */
 function deps(
   state: string,
   held: readonly string[] | null,
-  verdicts: Record<string, NativeChatVisualsWorkspaceVerdict> = {}
-): NativeChatVisualsSweepDeps & {
-  logger: { warn: ReturnType<typeof vi.fn<StructuredAgentSessionLogger['warn']>> }
-} {
+  options: { journal?: Record<string, number>; executing?: readonly string[] } = {}
+): TestDeps {
   return {
     stateDirectory: state,
     listHeldSessionIds: () => held,
-    locationOf: (sessionId) => (held?.includes(sessionId) ? location(`ws-${sessionId}`) : null),
-    workspaceVerdicts: () => async (where) => verdicts[where.workspaceId] ?? 'present',
-    logger: { warn: vi.fn<StructuredAgentSessionLogger['warn']>(), error: vi.fn() }
+    lastJournalActivityAt: vi.fn((sessionId: string) => options.journal?.[sessionId] ?? null),
+    runWhileExecutionIdle: async (sessionId, task) =>
+      options.executing?.includes(sessionId) ? null : await task(),
+    logger: { warn: vi.fn<StructuredAgentSessionLogger['warn']>(), error: vi.fn() },
+    now: () => NOW
   }
 }
 
 describe('the visuals folder sweep', () => {
-  it('removes a folder no chat record maps to and keeps every held chat', async () => {
+  it('removes a folder no chat record maps to and keeps every recently used held chat', async () => {
     const state = stateDirectory()
     const live = visualsFor(state, 'chat-live')
     const unreadable = visualsFor(state, 'chat-unreadable-row')
@@ -72,42 +91,90 @@ describe('the visuals folder sweep', () => {
     expect(existsSync(orphan)).toBe(false)
   })
 
-  it('removes a chat folder only when its local workspace is proven removed', async () => {
+  it('removes a chat folder whose files and journal are both past the retention window', async () => {
     const state = stateDirectory()
-    const removed = visualsFor(state, 'chat-a')
-    const unverifiable = visualsFor(state, 'chat-b')
-    const present = visualsFor(state, 'chat-c')
-    await sweepNativeChatVisualsFolders(
-      deps(state, ['chat-a', 'chat-b', 'chat-c'], {
-        'ws-chat-a': 'removed',
-        'ws-chat-b': 'unverifiable'
-      })
+    const folder = visualsFor(state, 'chat-a', OLD)
+    const result = await sweepNativeChatVisualsFolders(
+      deps(state, ['chat-a'], { journal: { 'chat-a': OLD } })
     )
-    expect(existsSync(removed)).toBe(false)
-    expect(existsSync(unverifiable)).toBe(true)
-    expect(existsSync(present)).toBe(true)
+    expect(result).toEqual({ removed: 1, failed: 0 })
+    expect(existsSync(folder)).toBe(false)
+    expect(readdirSync(nativeChatVisualsRootFor(state))).toEqual([])
   })
 
-  it('keeps a held chat whose workspace verdict throws', async () => {
+  it('removes an old folder whose chat has no journal rows', async () => {
     const state = stateDirectory()
-    const folder = visualsFor(state, 'chat-a')
+    const folder = visualsFor(state, 'chat-a', OLD)
+    await sweepNativeChatVisualsFolders(deps(state, ['chat-a']))
+    expect(existsSync(folder)).toBe(false)
+  })
+
+  it('keeps old files while the chat journal is recent', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    await sweepNativeChatVisualsFolders(deps(state, ['chat-a'], { journal: { 'chat-a': RECENT } }))
+    expect(existsSync(folder)).toBe(true)
+  })
+
+  it('keeps recent files with an old journal, and never asks the journal about them', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    // One file rewritten in place: the folder's own mtime stays old.
+    const rewritten = join(folder, 'chart.html')
+    setTime(rewritten, RECENT)
+    const sweep = deps(state, ['chat-a'], { journal: { 'chat-a': OLD } })
+    await sweepNativeChatVisualsFolders(sweep)
+    expect(existsSync(folder)).toBe(true)
+    expect(sweep.lastJournalActivityAt).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unused folder while the host holds execution for its chat', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    await sweepNativeChatVisualsFolders(deps(state, ['chat-a'], { executing: ['chat-a'] }))
+    expect(existsSync(folder)).toBe(true)
+  })
+
+  it('decides again under the chat lock, so activity accepted after the first look keeps it', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    const journal: Record<string, number> = { 'chat-a': OLD }
+    const sweep = deps(state, ['chat-a'], { journal })
     await sweepNativeChatVisualsFolders({
-      ...deps(state, ['chat-a']),
-      workspaceVerdicts: () => async () => {
-        throw new Error('catalog unavailable')
+      ...sweep,
+      runWhileExecutionIdle: async (_sessionId, task) => {
+        // A send accepted ahead of the lock writes its journal row first.
+        journal['chat-a'] = RECENT
+        return await task()
       }
     })
     expect(existsSync(folder)).toBe(true)
+    expect(sweep.lastJournalActivityAt).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a folder whose journal cannot be read and reports it', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    const sweep = deps(state, ['chat-a'])
+    sweep.lastJournalActivityAt.mockImplementation(() => {
+      throw new Error('the chat journal database is closed')
+    })
+    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 0, failed: 1 })
+    expect(existsSync(folder)).toBe(true)
+    expect(sweep.logger.warn).toHaveBeenCalledWith(
+      'native-chat visuals folder could not be removed',
+      expect.objectContaining({ reason: 'inactive', sessionId: 'chat-a' })
+    )
   })
 
   it('removes nothing when the held chats cannot be read', async () => {
     const state = stateDirectory()
-    const folder = visualsFor(state, 'chat-a')
+    const orphan = visualsFor(state, 'chat-a', OLD)
     await expect(sweepNativeChatVisualsFolders(deps(state, null))).resolves.toEqual({
       removed: 0,
       failed: 0
     })
-    expect(existsSync(folder)).toBe(true)
+    expect(existsSync(orphan)).toBe(true)
   })
 
   it('never touches entries it did not mint, symlinks included', async () => {
@@ -119,14 +186,69 @@ describe('the visuals folder sweep', () => {
     scratch.push(target)
     writeFileSync(join(target, 'keep.txt'), 'keep')
     symlinkSync(target, join(root, 'e'.repeat(32)))
+    symlinkSync(target, join(root, `${'d'.repeat(32)}.expired`))
     await sweepNativeChatVisualsFolders(deps(state, []))
     expect(existsSync(join(root, 'notes'))).toBe(true)
     expect(existsSync(join(root, 'f'.repeat(32)))).toBe(true)
     expect(existsSync(join(root, 'e'.repeat(32)))).toBe(true)
+    expect(existsSync(join(root, `${'d'.repeat(32)}.expired`))).toBe(true)
     expect(existsSync(join(target, 'keep.txt'))).toBe(true)
   })
 
-  it('reports a removal that fails and carries on', async () => {
+  it('never follows a symlink inside an expiring folder, for its age or its removal', async () => {
+    const state = stateDirectory()
+    const target = mkdtempSync(join(tmpdir(), 'orca-visuals-target-'))
+    scratch.push(target)
+    writeFileSync(join(target, 'keep.txt'), 'keep')
+    const folder = visualsFor(state, 'chat-a', OLD)
+    const link = join(folder, 'linked')
+    symlinkSync(target, link)
+    lutimesSync(link, OLD / 1000, OLD / 1000)
+    setTime(folder, OLD)
+    // The target itself is recent; only the link's own time counts.
+    await sweepNativeChatVisualsFolders(deps(state, ['chat-a']))
+    expect(existsSync(folder)).toBe(false)
+    expect(existsSync(join(target, 'keep.txt'))).toBe(true)
+  })
+
+  it('counts a folder too large to date cheaply as recently used', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    for (let index = 0; index < 300; index += 1) {
+      const file = join(folder, `v${index}.html`)
+      writeFileSync(file, '')
+      setTime(file, OLD)
+    }
+    setTime(folder, OLD)
+    const sweep = deps(state, ['chat-a'])
+    await sweepNativeChatVisualsFolders(sweep)
+    expect(existsSync(folder)).toBe(true)
+    expect(sweep.lastJournalActivityAt).not.toHaveBeenCalled()
+  })
+
+  it('reports a removal that fails, and a later run finishes it', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    const sweep = deps(state, ['chat-a'])
+    const busy = Object.assign(new Error('busy'), { code: 'EBUSY' })
+    const first = await sweepNativeChatVisualsFolders({
+      ...sweep,
+      remove: vi.fn().mockRejectedValueOnce(busy)
+    })
+    expect(first).toEqual({ removed: 0, failed: 1 })
+    expect(sweep.logger.warn).toHaveBeenCalledWith(
+      'native-chat visuals folder could not be removed',
+      expect.objectContaining({ scope: 'nativeChatVisuals.sweep', reason: 'inactive' })
+    )
+    // Already gone for every reader; only its disk space is left.
+    expect(existsSync(folder)).toBe(false)
+    expect(existsSync(`${folder}.expired`)).toBe(true)
+
+    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
+    expect(readdirSync(nativeChatVisualsRootFor(state))).toEqual([])
+  })
+
+  it('reports a no-record removal that fails and carries on', async () => {
     const state = stateDirectory()
     visualsFor(state, 'chat-x')
     visualsFor(state, 'chat-y')
@@ -143,6 +265,19 @@ describe('the visuals folder sweep', () => {
       'native-chat visuals folder could not be removed',
       expect.objectContaining({ scope: 'nativeChatVisuals.sweep', reason: 'no-record' })
     )
+  })
+
+  it('stops each run at its removal cap and leaves the rest for the next', async () => {
+    const state = stateDirectory()
+    for (let index = 0; index < 205; index += 1) {
+      visualsFor(state, `chat-${index}`)
+    }
+    const sweep = deps(state, [])
+    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({
+      removed: 200,
+      failed: 0
+    })
+    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 5, failed: 0 })
   })
 
   it('does nothing on a host with no visuals yet', async () => {
@@ -168,6 +303,32 @@ describe('the visuals folder sweep', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('logs a failed run and runs again on schedule', async () => {
+    const state = stateDirectory()
+    visualsFor(state, 'chat-z')
+    vi.useFakeTimers()
+    const listHeldSessionIds = vi
+      .fn((): string[] => [])
+      .mockImplementationOnce(() => {
+        throw new Error('store unavailable')
+      })
+    const sweep = deps(state, [])
+    const stop = scheduleNativeChatVisualsSweep({ ...sweep, listHeldSessionIds })
+    await vi.advanceTimersByTimeAsync(2 * 60_000)
+    await vi.waitFor(() =>
+      expect(sweep.logger.warn).toHaveBeenCalledWith(
+        'native-chat visuals sweep failed',
+        expect.objectContaining({ scope: 'nativeChatVisuals.sweep' })
+      )
+    )
+    expect(existsSync(nativeChatVisualsFolderFor(state, 'chat-z'))).toBe(true)
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60_000)
+    await vi.waitFor(() =>
+      expect(existsSync(nativeChatVisualsFolderFor(state, 'chat-z'))).toBe(false)
+    )
+    stop()
+  })
+
   it('touches nothing under a visuals root that is a symlink', async () => {
     const state = stateDirectory()
     const elsewhere = mkdtempSync(join(tmpdir(), 'orca-visuals-elsewhere-'))
@@ -176,14 +337,5 @@ describe('the visuals folder sweep', () => {
     symlinkSync(elsewhere, nativeChatVisualsRootFor(state))
     await sweepNativeChatVisualsFolders(deps(state, []))
     expect(existsSync(join(elsewhere, 'a'.repeat(32)))).toBe(true)
-  })
-
-  it('takes one verdict snapshot per run', async () => {
-    const state = stateDirectory()
-    visualsFor(state, 'chat-a')
-    visualsFor(state, 'chat-b')
-    const workspaceVerdicts = vi.fn(() => async () => 'present' as const)
-    await sweepNativeChatVisualsFolders({ ...deps(state, ['chat-a', 'chat-b']), workspaceVerdicts })
-    expect(workspaceVerdicts).toHaveBeenCalledOnce()
   })
 })

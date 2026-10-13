@@ -1,43 +1,58 @@
 // How a chat's visuals folder dies. The host never deletes a chat record, so no deletion event
-// exists to hang cleanup on; instead each folder's life is derived from the records every run:
+// exists to hang cleanup on; instead each folder's life is re-derived from the records every run:
 //   1. a folder no chat record (readable or not) maps to is removed, so any future record
 //      deletion cleans up for free;
-//   2. a folder whose chat ran in a local workspace this host can prove was removed is removed.
-// Anything unproven is kept. A failure is logged and never blocks anything else.
+//   2. a folder whose chat went unused for the retention window is removed: its newest journal row
+//      and its newest file are both older than that, and the host holds no execution for the chat.
+// Rule 2 decides again under the chat's lifecycle lock, so a start accepted after the first look
+// keeps the folder. Anything unproven is kept. A failure is logged and never blocks anything else.
 
 import type { Dirent } from 'node:fs'
-import { lstat, readdir, rm } from 'node:fs/promises'
+import { lstat, opendir, readdir, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 import { isDefinitiveAbsence } from '../../shared/definitive-filesystem-absence'
 import { yieldToEventLoop } from '../../shared/event-loop-yield'
 import type { StructuredAgentSessionLogger } from './agent-session-wire/structured-agent-session-logger'
 import { nativeChatVisualsFolderName, nativeChatVisualsRootFor } from './native-chat-visuals-folder'
 
-/** `removed` only on positive proof from the host that owns the workspace. */
-export type NativeChatVisualsWorkspaceVerdict = 'present' | 'removed' | 'unverifiable'
+/** How long a chat's visuals outlive its last use. */
+export const NATIVE_CHAT_VISUALS_RETENTION_MS = 30 * 24 * 60 * 60_000
 
 export type NativeChatVisualsSweepDeps = {
   stateDirectory: string
   /** Every chat this host holds a row for, readable or not; null when that can't be trusted. */
   listHeldSessionIds: () => readonly string[] | null
-  locationOf: (sessionId: string) => AgentSessionExecutionLocation | null
-  /** Called at most once per run, so one run judges every chat against one catalog snapshot.
-   *  Absent: only rule 1 runs. */
-  workspaceVerdicts?: () => (
-    location: AgentSessionExecutionLocation
-  ) => Promise<NativeChatVisualsWorkspaceVerdict>
+  /** When the chat's newest journal row was saved; null when it has none. */
+  lastJournalActivityAt: (sessionId: string) => number | null
+  /** Runs `task` under the chat's lifecycle lock unless the host still holds execution for it;
+   *  null when it does. */
+  runWhileExecutionIdle: <T>(sessionId: string, task: () => Promise<T>) => Promise<T | null>
   logger: StructuredAgentSessionLogger
   remove?: (path: string) => Promise<void>
+  now?: () => number
 }
 
 export type NativeChatVisualsSweepResult = { removed: number; failed: number }
 
 // Only names this host minted: anything else in the folder is never touched.
 const FOLDER_NAME = /^[0-9a-f]{32}$/
+// An expired folder is renamed under the chat's lock and deleted after it, so the lock is held for
+// one rename; a deletion that fails or is cut short leaves this name for a later run.
+const EXPIRED_SUFFIX = '.expired'
+const EXPIRED_NAME = /^[0-9a-f]{32}\.expired$/
 // Bounds one run's disk work; whatever is left goes in a later run.
 const MAX_REMOVALS_PER_RUN = 200
+// Past this, proving a folder's age costs an unbounded scan, so it counts as recently used.
+const MAX_ENTRIES_PER_FOLDER = 256
 const YIELD_EVERY = 32
+
+type SweepRun = {
+  deps: NativeChatVisualsSweepDeps
+  root: string
+  cutoff: number
+  remove: (path: string) => Promise<void>
+  result: NativeChatVisualsSweepResult
+}
 
 async function listFolders(root: string): Promise<Dirent[]> {
   try {
@@ -70,10 +85,13 @@ export async function sweepNativeChatVisualsFolders(
   const sessionByFolder = new Map(
     held.map((sessionId) => [nativeChatVisualsFolderName(sessionId), sessionId])
   )
-  const remove = deps.remove ?? ((path: string) => rm(path, { recursive: true, force: true }))
-  let verdict: ReturnType<NonNullable<NativeChatVisualsSweepDeps['workspaceVerdicts']>> | undefined
-  const verdictFor = (location: AgentSessionExecutionLocation) =>
-    (verdict ??= deps.workspaceVerdicts?.())?.(location)
+  const run: SweepRun = {
+    deps,
+    root,
+    cutoff: (deps.now?.() ?? Date.now()) - NATIVE_CHAT_VISUALS_RETENTION_MS,
+    remove: deps.remove ?? ((path: string) => rm(path, { recursive: true, force: true })),
+    result
+  }
   let visited = 0
   for (const entry of entries) {
     if (isStopped() || result.removed + result.failed >= MAX_REMOVALS_PER_RUN) {
@@ -83,51 +101,115 @@ export async function sweepNativeChatVisualsFolders(
       await yieldToEventLoop()
     }
     // A Dirent describes the entry itself, so a symlink is never followed or removed here.
-    if (!entry.isDirectory() || !FOLDER_NAME.test(entry.name)) {
+    if (!entry.isDirectory()) {
+      continue
+    }
+    if (EXPIRED_NAME.test(entry.name)) {
+      await removeFolder(run, entry.name, 'expired')
+      continue
+    }
+    if (!FOLDER_NAME.test(entry.name)) {
       continue
     }
     const sessionId = sessionByFolder.get(entry.name)
-    const reason =
-      sessionId === undefined ? 'no-record' : await removedWorkspace(deps, sessionId, verdictFor)
-    if (!reason) {
-      continue
-    }
-    try {
-      await remove(join(root, entry.name))
-      result.removed += 1
-    } catch (error) {
-      result.failed += 1
-      deps.logger.warn('native-chat visuals folder could not be removed', {
-        scope: 'nativeChatVisuals.sweep',
-        reason,
-        ...(sessionId ? { sessionId } : {}),
-        error
-      })
-    }
+    await (sessionId === undefined
+      ? removeFolder(run, entry.name, 'no-record')
+      : expireUnusedFolder(run, entry.name, sessionId))
   }
   return result
 }
 
-async function removedWorkspace(
-  deps: Pick<NativeChatVisualsSweepDeps, 'locationOf'>,
-  sessionId: string,
-  verdictFor: (
-    location: AgentSessionExecutionLocation
-  ) => Promise<NativeChatVisualsWorkspaceVerdict> | undefined
-): Promise<'workspace-removed' | null> {
-  const location = deps.locationOf(sessionId)
-  if (!location) {
-    return null
-  }
+async function removeFolder(
+  run: SweepRun,
+  name: string,
+  reason: 'no-record' | 'expired' | 'inactive',
+  sessionId?: string
+): Promise<void> {
   try {
-    return (await verdictFor(location)) === 'removed' ? 'workspace-removed' : null
-  } catch {
-    return null
+    await run.remove(join(run.root, name))
+    run.result.removed += 1
+  } catch (error) {
+    reportFailure(run, reason, sessionId, error)
   }
 }
 
-// Why minutes, not at boot: the first sweep must not compete with session restore and the
-// workspace catalog loading; after that, a few runs a day is enough for files nothing reads.
+async function expireUnusedFolder(run: SweepRun, name: string, sessionId: string): Promise<void> {
+  const folder = join(run.root, name)
+  try {
+    if (!(await isUnused(run, folder, sessionId))) {
+      return
+    }
+    const parked = await run.deps.runWhileExecutionIdle(sessionId, async () => {
+      if (!(await isUnused(run, folder, sessionId))) {
+        return false
+      }
+      await rename(folder, folder + EXPIRED_SUFFIX)
+      return true
+    })
+    if (!parked) {
+      return
+    }
+  } catch (error) {
+    if (!isDefinitiveAbsence(error)) {
+      reportFailure(run, 'inactive', sessionId, error)
+    }
+    return
+  }
+  await removeFolder(run, name + EXPIRED_SUFFIX, 'inactive', sessionId)
+}
+
+/** Files first: the journal is asked only about a folder whose files already look unused. */
+async function isUnused(run: SweepRun, folder: string, sessionId: string): Promise<boolean> {
+  if ((await newestEntryTime(folder)) >= run.cutoff) {
+    return false
+  }
+  const lastActivityAt = run.deps.lastJournalActivityAt(sessionId)
+  return lastActivityAt === null || lastActivityAt < run.cutoff
+}
+
+/** The newest mtime among the folder and its entries, none of them followed. */
+async function newestEntryTime(folder: string): Promise<number> {
+  const self = await lstat(folder)
+  if (!self.isDirectory()) {
+    return Infinity
+  }
+  let newest = self.mtimeMs
+  let seen = 0
+  // Closed by the loop, including on an early return.
+  for await (const entry of await opendir(folder)) {
+    if (++seen > MAX_ENTRIES_PER_FOLDER) {
+      return Infinity
+    }
+    try {
+      newest = Math.max(newest, (await lstat(join(folder, entry.name))).mtimeMs)
+    } catch (error) {
+      if (!isDefinitiveAbsence(error)) {
+        throw error
+      }
+      // Something is changing the folder right now.
+      return Infinity
+    }
+  }
+  return newest
+}
+
+function reportFailure(
+  run: SweepRun,
+  reason: 'no-record' | 'expired' | 'inactive',
+  sessionId: string | undefined,
+  error: unknown
+): void {
+  run.result.failed += 1
+  run.deps.logger.warn('native-chat visuals folder could not be removed', {
+    scope: 'nativeChatVisuals.sweep',
+    reason,
+    ...(sessionId ? { sessionId } : {}),
+    error
+  })
+}
+
+// Why minutes, not at boot: the first sweep must not compete with session restore; after that, a
+// few runs a day is enough for files nothing reads.
 const FIRST_SWEEP_DELAY_MS = 2 * 60_000
 const SWEEP_INTERVAL_MS = 6 * 60 * 60_000
 

@@ -9,6 +9,7 @@ import {
   AgentSessionRefusalError,
   agentSessionRefusalError
 } from '../../../shared/agent-session-wire-refusals'
+import { agentSessionLeaseOwnerVerdict } from '../../../shared/agent-session-lease-adjudication'
 import type { AgentChildWorkView } from '../../../shared/agent-status-child-work-view'
 import { createJournalOpenReadRefusals } from '../agent-session-journal/journal-open-failure'
 import type { StructuredAgentSessionConversations } from './structured-agent-session-conversations'
@@ -77,6 +78,28 @@ export function createStructuredAgentSessionConversationLifetime(host: {
     return closed
   }
 
+  const hasOpenDispatch = (sessionId: string): boolean => {
+    const record = deps().store.getRecord(sessionId)
+    return record !== null && deps().hasOpenDispatch?.(record) === true
+  }
+  const providerHoldsDispatch = (sessionId: string): boolean =>
+    deps().adapter.holdsDispatch?.(sessionId) === true
+
+  /** Execution the host still holds for a chat: a child in any phase, a delivery, a send the
+   *  provider or an orchestration dispatch holds, or an owner not proved exited. Without any of
+   *  these a leftover prompt or turn row is only history. */
+  const holdsExecution = (sessionId: string): boolean => {
+    const record = deps().store.getRecord(sessionId)
+    return (
+      !record ||
+      agentSessionLeaseOwnerVerdict(record.lease) !== 'exited' ||
+      Boolean(sessions.get(sessionId)?.child) ||
+      host.deliveryActive(sessionId) ||
+      providerHoldsDispatch(sessionId) ||
+      hasOpenDispatch(sessionId)
+    )
+  }
+
   const idleSweep = new StructuredAgentSessionIdleSweep({
     sessions,
     serialize,
@@ -84,11 +107,8 @@ export function createStructuredAgentSessionConversationLifetime(host: {
     isDisposed: () => disposed,
     deliveryActive: host.deliveryActive,
     childWork: host.readChildWork,
-    hasOpenDispatch: (sessionId) => {
-      const record = deps().store.getRecord(sessionId)
-      return record !== null && deps().hasOpenDispatch?.(record) === true
-    },
-    providerHoldsDispatch: (sessionId) => deps().adapter.holdsDispatch?.(sessionId) === true,
+    hasOpenDispatch,
+    providerHoldsDispatch,
     // The host puts an idle agent to rest: a turn it cuts short is news, not the user's Stop.
     stopAgent: (sessionId) => stopAgent(sessionId, { cause: 'evict', resting: true }),
     // A host stop: the child's end rejects what it was handed and writes the one error row, and
@@ -130,6 +150,12 @@ export function createStructuredAgentSessionConversationLifetime(host: {
         })
       )
     },
+    /** Runs `task` under the chat's lifecycle lock, so no start interleaves with it, unless the
+     *  host still holds execution for the chat or quit has begun; null then. */
+    runWhileExecutionIdle: <T>(sessionId: string, task: () => Promise<T>): Promise<T | null> =>
+      serialize(sessionId, async () =>
+        disposed || holdsExecution(sessionId) ? null : await task()
+      ),
     /** Quit has begun: nothing opens a conversation or sweeps one after this. */
     dispose: (): void => {
       disposed = true
