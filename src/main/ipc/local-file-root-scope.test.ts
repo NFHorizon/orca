@@ -93,13 +93,33 @@ describe('one resolver, each caller with its own default roots', () => {
     expect(await byScope(HOST_FILE_ROOT_SCOPE, join(floating, 'file.md'))).toBe('denied')
   })
 
-  it('applies a declared access kind the same way in either scope', async () => {
+  it('honours a declared access kind outside the roots on the desktop only', async () => {
     const userFile = { kind: 'user-file' }
+    expect(await byScope(DESKTOP_FILE_ROOT_SCOPE, join(outside, 'file.md'), userFile)).toBe('ok')
+    expect(await byScope(HOST_FILE_ROOT_SCOPE, join(outside, 'file.md'), userFile)).toBe('denied')
     for (const scope of [DESKTOP_FILE_ROOT_SCOPE, HOST_FILE_ROOT_SCOPE]) {
-      expect(await byScope(scope, join(outside, 'file.md'), userFile)).toBe('ok')
       expect(await byScope(scope, join(outside, 'file.md'), { kind: 'grant-everything' })).toBe(
         'denied'
       )
+    }
+  })
+
+  it('gives every declared kind only the host roots on the host', async () => {
+    const outsideDocument = join(outside, 'file.md')
+    const kinds: [unknown, 'read' | 'write' | 'import-into'][] = [
+      [{ kind: 'user-file' }, 'read'],
+      [{ kind: 'user-file' }, 'write'],
+      [{ kind: 'chat-image' }, 'read'],
+      [{ kind: 'document-resource', documentPath: outsideDocument }, 'read'],
+      [{ kind: 'document-folder', documentPath: outsideDocument }, 'import-into']
+    ]
+    for (const [access, operation] of kinds) {
+      const onHost = (target: string) =>
+        outcome(
+          resolveLocalRequestPathInScope(target, access, store, operation, HOST_FILE_ROOT_SCOPE)
+        )
+      expect(await onHost(join(outside, 'file.md')), JSON.stringify(access)).toBe('denied')
+      expect(await onHost(join(folderWorkspace, 'file.md')), JSON.stringify(access)).toBe('ok')
     }
   })
 
