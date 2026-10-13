@@ -3258,7 +3258,7 @@
       "src/main/native-chat/native-chat-inline-visuals-setting.test.ts": 536,
       "src/main/native-chat/native-chat-visual-file-read.test.ts": 85,
       "src/main/native-chat/native-chat-visuals-delivery.test.ts": 343,
-      "src/main/native-chat/native-chat-visuals-sweep.test.ts": 78,
+      "src/main/native-chat/native-chat-scratch-sweep.test.ts": 78,
       "src/main/native-chat/session-file-resolver-claude-roots.test.ts": 142,
       "src/main/native-chat/session-file-resolver-codex-roots.test.ts": 136,
       "src/main/native-chat/session-file-resolver-wsl-scan-gate.test.ts": 141,

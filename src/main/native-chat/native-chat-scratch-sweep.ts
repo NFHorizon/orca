@@ -23,9 +23,9 @@ import {
 } from './native-chat-scratch-folder'
 
 /** How long a chat's scratch files outlive its last use. */
-export const NATIVE_CHAT_VISUALS_RETENTION_MS = 30 * 24 * 60 * 60_000
+export const NATIVE_CHAT_SCRATCH_RETENTION_MS = 30 * 24 * 60 * 60_000
 
-export type NativeChatVisualsSweepDeps = {
+export type NativeChatScratchSweepDeps = {
   stateDirectory: string
   /** Every chat this host holds a row for, readable or not; null when that can't be trusted. */
   listHeldSessionIds: () => readonly string[] | null
@@ -39,7 +39,7 @@ export type NativeChatVisualsSweepDeps = {
   now?: () => number
 }
 
-export type NativeChatVisualsSweepResult = { removed: number; failed: number }
+export type NativeChatScratchSweepResult = { removed: number; failed: number }
 
 // The names this host mints for a chat's folder.
 const FOLDER_NAME = /^[0-9a-f]{32}$/
@@ -56,10 +56,10 @@ const YIELD_EVERY = 32
 type RemovalReason = 'no-record' | 'expired' | 'inactive' | 'stray'
 
 type SweepRun = {
-  deps: NativeChatVisualsSweepDeps
+  deps: NativeChatScratchSweepDeps
   cutoff: number
   remove: (path: string) => Promise<void>
-  result: NativeChatVisualsSweepResult
+  result: NativeChatScratchSweepResult
 }
 
 async function listFolders(root: string): Promise<Dirent[]> {
@@ -77,10 +77,10 @@ async function listFolders(root: string): Promise<Dirent[]> {
   }
 }
 
-export async function sweepNativeChatVisualsFolders(
-  deps: NativeChatVisualsSweepDeps,
+export async function sweepNativeChatScratchFolders(
+  deps: NativeChatScratchSweepDeps,
   isStopped: () => boolean = () => false
-): Promise<NativeChatVisualsSweepResult> {
+): Promise<NativeChatScratchSweepResult> {
   const result = { removed: 0, failed: 0 }
   // Listed before the records are read: a folder is created only after its chat's record, so
   // every folder seen here already has its record in the snapshot below.
@@ -89,8 +89,17 @@ export async function sweepNativeChatVisualsFolders(
     nativeChatScratchRootFor(deps.stateDirectory),
     legacyNativeChatVisualsRootFor(deps.stateDirectory)
   ]) {
-    for (const entry of await listFolders(root)) {
-      entries.push({ root, entry })
+    try {
+      for (const entry of await listFolders(root)) {
+        entries.push({ root, entry })
+      }
+    } catch (error) {
+      // One unreadable root leaves the other's cleanup running.
+      deps.logger.warn('native-chat scratch root could not be listed', {
+        scope: 'nativeChatScratch.sweep',
+        root,
+        error
+      })
     }
   }
   const held = deps.listHeldSessionIds()
@@ -102,7 +111,7 @@ export async function sweepNativeChatVisualsFolders(
   )
   const run: SweepRun = {
     deps,
-    cutoff: (deps.now?.() ?? Date.now()) - NATIVE_CHAT_VISUALS_RETENTION_MS,
+    cutoff: (deps.now?.() ?? Date.now()) - NATIVE_CHAT_SCRATCH_RETENTION_MS,
     remove: deps.remove ?? ((path: string) => rm(path, { recursive: true, force: true })),
     result
   }
@@ -230,8 +239,8 @@ function reportFailure(
   error: unknown
 ): void {
   run.result.failed += 1
-  run.deps.logger.warn('native-chat visuals folder could not be removed', {
-    scope: 'nativeChatVisuals.sweep',
+  run.deps.logger.warn('native-chat scratch entry could not be removed', {
+    scope: 'nativeChatScratch.sweep',
     reason,
     ...(sessionId ? { sessionId } : {}),
     error
@@ -244,15 +253,15 @@ const FIRST_SWEEP_DELAY_MS = 2 * 60_000
 const SWEEP_INTERVAL_MS = 6 * 60 * 60_000
 
 /** Runs the sweep after startup and then periodically; the returned stop ends both. */
-export function scheduleNativeChatVisualsSweep(deps: NativeChatVisualsSweepDeps): () => void {
+export function scheduleNativeChatScratchSweep(deps: NativeChatScratchSweepDeps): () => void {
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | null = null
   const run = async (): Promise<void> => {
     try {
-      await sweepNativeChatVisualsFolders(deps, () => stopped)
+      await sweepNativeChatScratchFolders(deps, () => stopped)
     } catch (error) {
-      deps.logger.warn('native-chat visuals sweep failed', {
-        scope: 'nativeChatVisuals.sweep',
+      deps.logger.warn('native-chat scratch sweep failed', {
+        scope: 'nativeChatScratch.sweep',
         error
       })
     }

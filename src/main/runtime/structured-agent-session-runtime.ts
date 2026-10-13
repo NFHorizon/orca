@@ -67,7 +67,7 @@ import {
   type RuntimeAgentAccountHomeResolver
 } from './structured-agent-model-catalog-wiring'
 import type { ClaudeCliFlagSupport } from '../claude/claude-cli-flag-support'
-import { scheduleNativeChatVisualsSweep } from '../native-chat/native-chat-visuals-sweep'
+import { scheduleNativeChatScratchSweep } from '../native-chat/native-chat-scratch-sweep'
 import { readJournalSessionLastActivityAt } from '../native-chat/agent-session-journal/journal-row-table'
 
 /** Whether this profile holds a structured chat: a record or tab in the journal database. */
@@ -351,7 +351,7 @@ async function installOnJournal(
     logger: deps.logger
   })
   const stopVisualsSweep = deps.nativeChatVisuals
-    ? scheduleNativeChatVisualsSweep({
+    ? scheduleNativeChatScratchSweep({
         stateDirectory: deps.stateDirectory,
         listHeldSessionIds: () => (store.readOnly ? null : store.listHeldSessionIds()),
         lastJournalActivityAt: (sessionId) =>

@@ -21,19 +21,33 @@ import {
   nativeChatScratchRootFor
 } from './native-chat-scratch-folder'
 import {
-  NATIVE_CHAT_VISUALS_RETENTION_MS,
-  scheduleNativeChatVisualsSweep,
-  sweepNativeChatVisualsFolders,
-  type NativeChatVisualsSweepDeps
-} from './native-chat-visuals-sweep'
+  NATIVE_CHAT_SCRATCH_RETENTION_MS,
+  scheduleNativeChatScratchSweep,
+  sweepNativeChatScratchFolders,
+  type NativeChatScratchSweepDeps
+} from './native-chat-scratch-sweep'
+
+// Paths whose listing fails, for a root this host cannot read.
+const unlistable = vi.hoisted(() => new Set<string>())
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const readdir: typeof actual.readdir = async (path, ...rest) => {
+    if (unlistable.has(String(path))) {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    }
+    return actual.readdir(path, ...rest)
+  }
+  return { ...actual, readdir, default: { ...actual, readdir } }
+})
 
 const NOW = Date.UTC(2026, 9, 12)
-const OLD = NOW - NATIVE_CHAT_VISUALS_RETENTION_MS - 60_000
+const OLD = NOW - NATIVE_CHAT_SCRATCH_RETENTION_MS - 60_000
 const RECENT = NOW - 60_000
 
 const scratch: string[] = []
 afterEach(() => {
   vi.useRealTimers()
+  unlistable.clear()
   for (const dir of scratch.splice(0)) {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -80,7 +94,7 @@ function visualsFor(
   return folder
 }
 
-type TestDeps = NativeChatVisualsSweepDeps & {
+type TestDeps = NativeChatScratchSweepDeps & {
   logger: { warn: ReturnType<typeof vi.fn<StructuredAgentSessionLogger['warn']>> }
   lastJournalActivityAt: ReturnType<typeof vi.fn<(sessionId: string) => number | null>>
 }
@@ -108,7 +122,7 @@ describe('the chat scratch folder sweep', () => {
     const live = visualsFor(state, 'chat-live')
     const unreadable = visualsFor(state, 'chat-unreadable-row')
     const orphan = visualsFor(state, 'chat-deleted')
-    const result = await sweepNativeChatVisualsFolders(
+    const result = await sweepNativeChatScratchFolders(
       deps(state, ['chat-live', 'chat-unreadable-row'])
     )
     expect(result).toEqual({ removed: 1, failed: 0 })
@@ -120,7 +134,7 @@ describe('the chat scratch folder sweep', () => {
   it('removes a chat folder whose files and journal are both past the retention window', async () => {
     const state = stateDirectory()
     const folder = visualsFor(state, 'chat-a', OLD)
-    const result = await sweepNativeChatVisualsFolders(
+    const result = await sweepNativeChatScratchFolders(
       deps(state, ['chat-a'], { journal: { 'chat-a': OLD } })
     )
     expect(result).toEqual({ removed: 1, failed: 0 })
@@ -131,14 +145,14 @@ describe('the chat scratch folder sweep', () => {
   it('removes an old folder whose chat has no journal rows', async () => {
     const state = stateDirectory()
     const folder = visualsFor(state, 'chat-a', OLD)
-    await sweepNativeChatVisualsFolders(deps(state, ['chat-a']))
+    await sweepNativeChatScratchFolders(deps(state, ['chat-a']))
     expect(existsSync(folder)).toBe(false)
   })
 
   it('keeps old files while the chat journal is recent', async () => {
     const state = stateDirectory()
     const folder = visualsFor(state, 'chat-a', OLD)
-    await sweepNativeChatVisualsFolders(deps(state, ['chat-a'], { journal: { 'chat-a': RECENT } }))
+    await sweepNativeChatScratchFolders(deps(state, ['chat-a'], { journal: { 'chat-a': RECENT } }))
     expect(existsSync(folder)).toBe(true)
   })
 
@@ -149,7 +163,7 @@ describe('the chat scratch folder sweep', () => {
     const rewritten = join(folder, 'chart.html')
     setTime(rewritten, RECENT)
     const sweep = deps(state, ['chat-a'], { journal: { 'chat-a': OLD } })
-    await sweepNativeChatVisualsFolders(sweep)
+    await sweepNativeChatScratchFolders(sweep)
     expect(existsSync(folder)).toBe(true)
     expect(sweep.lastJournalActivityAt).not.toHaveBeenCalled()
   })
@@ -157,7 +171,7 @@ describe('the chat scratch folder sweep', () => {
   it('keeps an unused folder while the host holds execution for its chat', async () => {
     const state = stateDirectory()
     const folder = visualsFor(state, 'chat-a', OLD)
-    await sweepNativeChatVisualsFolders(deps(state, ['chat-a'], { executing: ['chat-a'] }))
+    await sweepNativeChatScratchFolders(deps(state, ['chat-a'], { executing: ['chat-a'] }))
     expect(existsSync(folder)).toBe(true)
   })
 
@@ -166,7 +180,7 @@ describe('the chat scratch folder sweep', () => {
     const folder = visualsFor(state, 'chat-a', OLD)
     const journal: Record<string, number> = { 'chat-a': OLD }
     const sweep = deps(state, ['chat-a'], { journal })
-    await sweepNativeChatVisualsFolders({
+    await sweepNativeChatScratchFolders({
       ...sweep,
       runWhileExecutionIdle: async (_sessionId, task) => {
         // A send accepted ahead of the lock writes its journal row first.
@@ -185,10 +199,10 @@ describe('the chat scratch folder sweep', () => {
     sweep.lastJournalActivityAt.mockImplementation(() => {
       throw new Error('the chat journal database is closed')
     })
-    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 0, failed: 1 })
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({ removed: 0, failed: 1 })
     expect(existsSync(folder)).toBe(true)
     expect(sweep.logger.warn).toHaveBeenCalledWith(
-      'native-chat visuals folder could not be removed',
+      'native-chat scratch entry could not be removed',
       expect.objectContaining({ reason: 'inactive', sessionId: 'chat-a' })
     )
   })
@@ -196,7 +210,7 @@ describe('the chat scratch folder sweep', () => {
   it('removes nothing when the held chats cannot be read', async () => {
     const state = stateDirectory()
     const orphan = visualsFor(state, 'chat-a', OLD)
-    await expect(sweepNativeChatVisualsFolders(deps(state, null))).resolves.toEqual({
+    await expect(sweepNativeChatScratchFolders(deps(state, null))).resolves.toEqual({
       removed: 0,
       failed: 0
     })
@@ -213,7 +227,7 @@ describe('the chat scratch folder sweep', () => {
     scratch.push(target)
     symlinkSync(target, join(root, 'e'.repeat(32)))
     symlinkSync(target, join(root, `${'d'.repeat(32)}.expired`))
-    await expect(sweepNativeChatVisualsFolders(deps(state, []))).resolves.toEqual({
+    await expect(sweepNativeChatScratchFolders(deps(state, []))).resolves.toEqual({
       removed: 0,
       failed: 0
     })
@@ -246,7 +260,7 @@ describe('the chat scratch folder sweep', () => {
     writeFileSync(join(busy, 'draft.html'), '')
     setTime(busy, OLD)
 
-    await expect(sweepNativeChatVisualsFolders(deps(state, []))).resolves.toEqual({
+    await expect(sweepNativeChatScratchFolders(deps(state, []))).resolves.toEqual({
       removed: 5,
       failed: 0
     })
@@ -267,19 +281,19 @@ describe('the chat scratch folder sweep', () => {
     const remove = vi.fn(async () => {
       throw Object.assign(new Error('busy'), { code: 'EBUSY' })
     })
-    await expect(sweepNativeChatVisualsFolders({ ...sweep, remove })).resolves.toEqual({
+    await expect(sweepNativeChatScratchFolders({ ...sweep, remove })).resolves.toEqual({
       removed: 0,
       failed: 200
     })
     expect(sweep.logger.warn).toHaveBeenCalledWith(
-      'native-chat visuals folder could not be removed',
+      'native-chat scratch entry could not be removed',
       expect.objectContaining({ reason: 'stray' })
     )
-    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({
       removed: 200,
       failed: 0
     })
-    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
   })
 
   it('never follows a symlink inside an expiring folder, for its age or its removal', async () => {
@@ -293,7 +307,7 @@ describe('the chat scratch folder sweep', () => {
     lutimesSync(link, OLD / 1000, OLD / 1000)
     setTime(folder, OLD)
     // The target itself is recent; only the link's own time counts.
-    await sweepNativeChatVisualsFolders(deps(state, ['chat-a']))
+    await sweepNativeChatScratchFolders(deps(state, ['chat-a']))
     expect(existsSync(folder)).toBe(false)
     expect(existsSync(join(target, 'keep.txt'))).toBe(true)
   })
@@ -309,12 +323,12 @@ describe('the chat scratch folder sweep', () => {
     setTime(folder, OLD)
     const journal: Record<string, number> = { 'chat-a': RECENT }
     const sweep = deps(state, ['chat-a'], { journal })
-    await sweepNativeChatVisualsFolders(sweep)
+    await sweepNativeChatScratchFolders(sweep)
     expect(existsSync(folder)).toBe(true)
     expect(sweep.lastJournalActivityAt).toHaveBeenCalledWith('chat-a')
 
     journal['chat-a'] = OLD
-    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
     expect(existsSync(folder)).toBe(false)
   })
 
@@ -328,7 +342,7 @@ describe('the chat scratch folder sweep', () => {
     }
     setTime(folder, RECENT)
     const sweep = deps(state, ['chat-a'])
-    await sweepNativeChatVisualsFolders(sweep)
+    await sweepNativeChatScratchFolders(sweep)
     expect(existsSync(folder)).toBe(true)
     expect(sweep.lastJournalActivityAt).not.toHaveBeenCalled()
   })
@@ -338,20 +352,20 @@ describe('the chat scratch folder sweep', () => {
     const folder = visualsFor(state, 'chat-a', OLD)
     const sweep = deps(state, ['chat-a'])
     const busy = Object.assign(new Error('busy'), { code: 'EBUSY' })
-    const first = await sweepNativeChatVisualsFolders({
+    const first = await sweepNativeChatScratchFolders({
       ...sweep,
       remove: vi.fn().mockRejectedValueOnce(busy)
     })
     expect(first).toEqual({ removed: 0, failed: 1 })
     expect(sweep.logger.warn).toHaveBeenCalledWith(
-      'native-chat visuals folder could not be removed',
-      expect.objectContaining({ scope: 'nativeChatVisuals.sweep', reason: 'inactive' })
+      'native-chat scratch entry could not be removed',
+      expect.objectContaining({ scope: 'nativeChatScratch.sweep', reason: 'inactive' })
     )
     // Already gone for every reader; only its disk space is left.
     expect(existsSync(folder)).toBe(false)
     expect(existsSync(`${folder}.expired`)).toBe(true)
 
-    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
     expect(readdirSync(nativeChatScratchRootFor(state))).toEqual([])
   })
 
@@ -360,7 +374,7 @@ describe('the chat scratch folder sweep', () => {
     visualsFor(state, 'chat-x')
     visualsFor(state, 'chat-y')
     const sweep = deps(state, [])
-    const result = await sweepNativeChatVisualsFolders({
+    const result = await sweepNativeChatScratchFolders({
       ...sweep,
       remove: vi
         .fn()
@@ -369,8 +383,8 @@ describe('the chat scratch folder sweep', () => {
     })
     expect(result).toEqual({ removed: 1, failed: 1 })
     expect(sweep.logger.warn).toHaveBeenCalledWith(
-      'native-chat visuals folder could not be removed',
-      expect.objectContaining({ scope: 'nativeChatVisuals.sweep', reason: 'no-record' })
+      'native-chat scratch entry could not be removed',
+      expect.objectContaining({ scope: 'nativeChatScratch.sweep', reason: 'no-record' })
     )
   })
 
@@ -380,16 +394,16 @@ describe('the chat scratch folder sweep', () => {
       visualsFor(state, `chat-${index}`)
     }
     const sweep = deps(state, [])
-    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({
       removed: 200,
       failed: 0
     })
-    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 5, failed: 0 })
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({ removed: 5, failed: 0 })
   })
 
   it('does nothing on a host with no visuals yet', async () => {
     await expect(
-      sweepNativeChatVisualsFolders(deps(stateDirectory(), ['chat-a']))
+      sweepNativeChatScratchFolders(deps(stateDirectory(), ['chat-a']))
     ).resolves.toEqual({ removed: 0, failed: 0 })
   })
 
@@ -398,7 +412,7 @@ describe('the chat scratch folder sweep', () => {
     const orphan = visualsFor(state, 'chat-z')
     vi.useFakeTimers()
     const listHeldSessionIds = vi.fn((): string[] => [])
-    const stop = scheduleNativeChatVisualsSweep({ ...deps(state, []), listHeldSessionIds })
+    const stop = scheduleNativeChatScratchSweep({ ...deps(state, []), listHeldSessionIds })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(listHeldSessionIds).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(60_000)
@@ -420,12 +434,12 @@ describe('the chat scratch folder sweep', () => {
         throw new Error('store unavailable')
       })
     const sweep = deps(state, [])
-    const stop = scheduleNativeChatVisualsSweep({ ...sweep, listHeldSessionIds })
+    const stop = scheduleNativeChatScratchSweep({ ...sweep, listHeldSessionIds })
     await vi.advanceTimersByTimeAsync(2 * 60_000)
     await vi.waitFor(() =>
       expect(sweep.logger.warn).toHaveBeenCalledWith(
-        'native-chat visuals sweep failed',
-        expect.objectContaining({ scope: 'nativeChatVisuals.sweep' })
+        'native-chat scratch sweep failed',
+        expect.objectContaining({ scope: 'nativeChatScratch.sweep' })
       )
     )
     expect(existsSync(nativeChatScratchFolderFor(state, 'chat-z'))).toBe(true)
@@ -447,7 +461,7 @@ describe('the chat scratch folder sweep', () => {
     writeFileSync(stray, '')
     setTime(stray, OLD)
     const current = visualsFor(state, 'chat-recent')
-    const result = await sweepNativeChatVisualsFolders(
+    const result = await sweepNativeChatScratchFolders(
       deps(state, ['chat-recent', 'chat-unused', 'chat-executing'], {
         executing: ['chat-executing']
       })
@@ -467,10 +481,26 @@ describe('the chat scratch folder sweep', () => {
     )
   })
 
+  it('logs a root it cannot list and still sweeps the other one', async () => {
+    const state = stateDirectory()
+    const legacy = legacyNativeChatVisualsRootFor(state)
+    const legacyOrphan = visualsFor(state, 'chat-old-deleted', RECENT, legacy)
+    const orphan = visualsFor(state, 'chat-deleted')
+    const sweep = deps(state, [])
+    unlistable.add(legacy)
+    await expect(sweepNativeChatScratchFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
+    expect(existsSync(orphan)).toBe(false)
+    expect(existsSync(legacyOrphan)).toBe(true)
+    expect(sweep.logger.warn).toHaveBeenCalledWith(
+      'native-chat scratch root could not be listed',
+      expect.objectContaining({ scope: 'nativeChatScratch.sweep', root: legacy })
+    )
+  })
+
   it('sweeps the pre-rename root when the current one does not exist yet', async () => {
     const state = stateDirectory()
     const orphan = visualsFor(state, 'chat-deleted', RECENT, legacyNativeChatVisualsRootFor(state))
-    await expect(sweepNativeChatVisualsFolders(deps(state, []))).resolves.toEqual({
+    await expect(sweepNativeChatScratchFolders(deps(state, []))).resolves.toEqual({
       removed: 1,
       failed: 0
     })
@@ -484,7 +514,7 @@ describe('the chat scratch folder sweep', () => {
     scratch.push(elsewhere)
     mkdirSync(join(elsewhere, 'a'.repeat(32)))
     symlinkSync(elsewhere, legacyNativeChatVisualsRootFor(state))
-    await sweepNativeChatVisualsFolders(deps(state, []))
+    await sweepNativeChatScratchFolders(deps(state, []))
     expect(existsSync(join(elsewhere, 'a'.repeat(32)))).toBe(true)
   })
 
@@ -494,7 +524,7 @@ describe('the chat scratch folder sweep', () => {
     scratch.push(elsewhere)
     mkdirSync(join(elsewhere, 'a'.repeat(32)))
     symlinkSync(elsewhere, nativeChatScratchRootFor(state))
-    await sweepNativeChatVisualsFolders(deps(state, []))
+    await sweepNativeChatScratchFolders(deps(state, []))
     expect(existsSync(join(elsewhere, 'a'.repeat(32)))).toBe(true)
   })
 })
