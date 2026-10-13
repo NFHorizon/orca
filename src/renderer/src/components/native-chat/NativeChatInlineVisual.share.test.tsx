@@ -151,10 +151,14 @@ describe('inline visual Share', () => {
   it.each([
     ['this computer', LOCAL],
     ['a paired or SSH host', PAIRED]
-  ])('is offered beside Open for a chat on %s', async (_, target) => {
+  ])('is offered beside Open for a chat on %s, styled like Open', async (_, target) => {
     await shownVisual(target)
-    expect(screen.getByRole('button', OPEN)).toBeInTheDocument()
-    expect(screen.getByRole('button', SHARE)).toBeInTheDocument()
+    const open = screen.getByRole('button', OPEN)
+    const share = screen.getByRole('button', SHARE)
+    expect(open).toHaveAttribute('data-variant', 'outline')
+    expect(open).toHaveAttribute('data-size', 'icon-xs')
+    expect(share).toHaveAttribute('data-variant', 'outline')
+    expect(share).toHaveAttribute('data-size', 'icon-xs')
   })
 
   it.each([
@@ -208,7 +212,9 @@ describe('inline visual Share', () => {
     hostRead = () => Promise.reject(new Error('Runtime environment is not connected'))
     await generateLink()
     await waitFor(() => expect(toastError).toHaveBeenCalledOnce())
-    expect(toastError).toHaveBeenCalledWith('Could not share artifact', expect.anything())
+    expect(toastError).toHaveBeenCalledWith('Could not share artifact', {
+      description: "Couldn't read this visual to share it."
+    })
     expect(publishCalls()).toHaveLength(0)
     expect(frameSource(container)).toContain('<p>first</p>')
   })

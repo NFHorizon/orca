@@ -180,13 +180,13 @@ function NativeChatInlineVisualToolbar({
   return (
     <div
       data-share-open={shareOpen}
-      className="absolute top-2 right-2 flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5 shadow-xs transition-opacity can-hover:opacity-0 group-hover/visual:opacity-100 focus-within:opacity-100 data-[share-open=true]:opacity-100"
+      className="absolute top-2 right-2 flex items-center gap-1 transition-opacity can-hover:opacity-0 group-hover/visual:opacity-100 focus-within:opacity-100 data-[share-open=true]:opacity-100"
     >
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="ghost"
-            size="icon-sm"
+            variant="outline"
+            size="icon-xs"
             aria-label={openLabel}
             onClick={() =>
               openChatVisualTab(owner.worktreeId, {
@@ -206,6 +206,8 @@ function NativeChatInlineVisualToolbar({
       </Tooltip>
       {shareFile ? (
         <ArtifactPublishButton
+          variant="outline"
+          size="icon-xs"
           sourceKey={nativeChatVisualArtifactSourceKey(shareFile)}
           createRequest={() => readNativeChatVisualArtifactRequest(shareFile, onShareReadStarted)}
           open={shareOpen}

@@ -35,7 +35,7 @@ export async function readNativeChatVisualArtifactRequest(
   onReadStarted(startedAfter)
   const outcome = await read
   if (!outcome.ok) {
-    throw new ArtifactPublishPreparationError('unreadable')
+    throw new ArtifactPublishPreparationError('visual-unreadable')
   }
   return {
     sourceKey: nativeChatVisualArtifactSourceKey(file),

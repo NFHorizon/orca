@@ -181,10 +181,14 @@ describe('chat visual share request', () => {
     readFile.mockRejectedValue(error)
     const createRequest = (): ReturnType<typeof readNativeChatVisualArtifactRequest> =>
       readNativeChatVisualArtifactRequest(LOCAL, vi.fn())
-    await expect(createRequest()).rejects.toEqual(new ArtifactPublishPreparationError('unreadable'))
+    await expect(createRequest()).rejects.toEqual(
+      new ArtifactPublishPreparationError('visual-unreadable')
+    )
 
     await expect(publishArtifactFromSurface(createRequest)).resolves.toBeNull()
-    expect(mocks.toastError).toHaveBeenCalledWith('Could not share artifact', expect.anything())
+    expect(mocks.toastError).toHaveBeenCalledWith('Could not share artifact', {
+      description: "Couldn't read this visual to share it."
+    })
     expect(mocks.callRuntimeRpc).not.toHaveBeenCalled()
   })
 
