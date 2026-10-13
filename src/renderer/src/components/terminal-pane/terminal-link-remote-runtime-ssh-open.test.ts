@@ -250,7 +250,8 @@ describe('handleOscLink', () => {
     expect(openFileMock).not.toHaveBeenCalled()
     expect(openFileInBrowserTab).toHaveBeenCalledWith({
       filePath: '/home/me/repo/report.html',
-      worktreeId: 'wt-1'
+      worktreeId: 'wt-1',
+      plan: { status: 'doc-preview' }
     })
     // Why: the preview tab is the surface — activation must not re-seed a shell into a
     // workspace whose last terminal the user closed.
@@ -265,7 +266,8 @@ describe('handleOscLink', () => {
     vi.mocked(getWorkspaceFilePreviewPlan).mockReturnValueOnce({
       status: 'unsupported',
       message: 'nope',
-      reason: 'outside-worktree'
+      reason: 'outside-worktree',
+      environmentId: 'env-1'
     })
 
     openDetectedFilePath('/home/me/repo/report.html', null, null, {

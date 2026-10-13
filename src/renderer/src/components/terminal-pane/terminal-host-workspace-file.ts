@@ -90,7 +90,7 @@ async function statClientLocalFile(
 }
 
 /** Null when the host does not serve this path by itself (older host, outside its reach, or absent). */
-async function statHostPathFile(
+export async function statHostPathFile(
   context: RuntimeFileOperationArgs,
   absolutePath: string
 ): Promise<HostPathFile | null> {

@@ -39,7 +39,12 @@ const mocks = vi.hoisted(() => ({
   environmentId: null as string | null,
   connectionId: null as string | null,
   layoutByWorktree: {} as Record<string, unknown>,
-  toastError: vi.fn()
+  toastError: vi.fn(),
+  statHostPathFile: vi.fn()
+}))
+
+vi.mock('@/components/terminal-pane/terminal-host-workspace-file', () => ({
+  statHostPathFile: mocks.statHostPathFile
 }))
 
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError } }))
@@ -88,6 +93,7 @@ beforeEach(() => {
   mocks.browserPagesByWorkspace = {}
   mocks.unifiedTabsByWorktree = {}
   mocks.activeWorktreeId = 'wt-1'
+  mocks.statHostPathFile.mockResolvedValue(null)
 })
 
 /**
@@ -335,9 +341,9 @@ describe('openFileInBrowserTab', () => {
     expect(mocks.createBrowserTab).not.toHaveBeenCalled()
   })
 
-  // Why: the host's files.read is worktree-scoped, so this path would otherwise 404 inside the
-  // preview with nothing naming the boundary the user hit.
-  it('names the worktree boundary for a paired document outside the workspace', () => {
+  // Why: the host's workspace reads stop at the worktree, so this path would otherwise 404 inside
+  // the preview with nothing naming the boundary the user hit.
+  it('names the worktree boundary for a paired document outside the workspace', async () => {
     mocks.environmentId = 'runtime-1'
     mocks.browserAvailability = { state: 'enabled', provider: 'paired-runtime' }
 
@@ -348,10 +354,62 @@ describe('openFileInBrowserTab', () => {
       sourceGroupId: 'group-1'
     })
 
-    expect(mocks.toastError).toHaveBeenCalledWith(
-      "Files outside the workspace can't be previewed on a paired server yet."
+    await vi.waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Files outside the workspace can't be previewed on a paired server yet."
+      )
+    )
+    expect(mocks.statHostPathFile).toHaveBeenCalledWith(
+      {
+        target: { kind: 'environment', environmentId: 'runtime-1' },
+        worktreeId: 'wt-1',
+        worktreePath: '/srv/repo'
+      },
+      '/tmp/agent-scratch/report.html'
     )
     expect(mocks.createEmptySplitGroup).not.toHaveBeenCalled()
+    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+  })
+
+  it('previews a paired document outside the workspace beside its source when the host serves its path', async () => {
+    mocks.environmentId = 'runtime-1'
+    mocks.statHostPathFile.mockResolvedValue({
+      kind: 'host-path',
+      absolutePath: '/home/me/state/ab12/chart.html',
+      isDirectory: false
+    })
+
+    openFilePreviewToSide({
+      language: 'html',
+      filePath: '/home/me/state/ab12/chart.html',
+      worktreeId: 'wt-1',
+      sourceGroupId: 'group-1'
+    })
+
+    await vi.waitFor(() =>
+      expect(mocks.createBrowserTab).toHaveBeenCalledWith(
+        ...docPreviewCall('/home/me/state/ab12/chart.html', { targetGroupId: 'group-2' })
+      )
+    )
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('keeps the boundary message when the host cannot be asked', async () => {
+    mocks.environmentId = 'runtime-1'
+    mocks.statHostPathFile.mockRejectedValue(new Error('socket closed'))
+
+    openFilePreviewToSide({
+      language: 'html',
+      filePath: '/home/me/state/ab12/chart.html',
+      worktreeId: 'wt-1',
+      sourceGroupId: 'group-1'
+    })
+
+    await vi.waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Files outside the workspace can't be previewed on a paired server yet."
+      )
+    )
     expect(mocks.createBrowserTab).not.toHaveBeenCalled()
   })
 

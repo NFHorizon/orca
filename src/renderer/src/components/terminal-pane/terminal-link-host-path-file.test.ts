@@ -45,6 +45,8 @@ vi.mock('./terminal-remote-file-download-open', () => ({
 }))
 
 installTerminalLinkTestEnvironment(doubles)
+// The document preview looks for a tab already showing the page before it opens one.
+Object.assign(storeState, { browserTabsByWorktree: {} })
 
 const serverWorkspace = {
   worktreeId: 'wt-feat',
@@ -143,7 +145,7 @@ describe('a link to a file its paired or SSH host serves by path', () => {
     expect(opened).not.toHaveProperty('terminalArtifactGrantId')
   })
 
-  it('opens an HTML file’s source in the editor, not a browser tab on this computer', async () => {
+  it('renders an HTML file in the document preview, read from its host', async () => {
     const page = '/home/me/state/ab12/chart.html'
     hostHasNoWorkspaceFor(page)
     hostServesByPath()
@@ -151,9 +153,30 @@ describe('a link to a file its paired or SSH host serves by path', () => {
     openDetectedFilePath(page, null, null, serverWorkspace)
     await flushDoubleRaf()
 
+    expect(createBrowserTabMock).toHaveBeenCalledTimes(1)
+    expect(createBrowserTabMock).toHaveBeenCalledWith(
+      'wt-feat',
+      expect.any(String),
+      expect.objectContaining({
+        docLocation: { kind: 'workspace-doc', worktreeId: 'wt-feat', filePath: page },
+        // The preview mints its own grant on the host; it never becomes a file:// page here.
+        browserRuntimeEnvironmentId: null
+      })
+    )
+    expect(openFileMock).not.toHaveBeenCalled()
+    expect(statMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps opening the source of an HTML file its host does not serve by path', async () => {
+    const page = '/etc/site/index.html'
+    hostHasNoWorkspaceFor(page, { openTarget: { ...grant.openTarget, absolutePath: page } })
+
+    openDetectedFilePath(page, null, null, { ...serverWorkspace, terminalHandle: 'term-1' })
+    await flushDoubleRaf()
+
     expect(createBrowserTabMock).not.toHaveBeenCalled()
     expect(openFileMock).toHaveBeenCalledWith(
-      expect.objectContaining({ filePath: page, runtimeEnvironmentId: 'env-1' }),
+      expect.objectContaining({ filePath: page, readOnly: true, terminalArtifactGrantId: 'g-1' }),
       { forceContentReload: true }
     )
   })

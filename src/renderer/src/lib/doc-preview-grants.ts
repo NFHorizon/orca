@@ -3,6 +3,7 @@ import { basename, dirname, getRelativePathInsideRoot } from '@/lib/path'
 import { getConnectionIdForFileFromState } from '@/lib/connection-owner-resolution'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
+import { runtimeEnvironmentServesFilesByPath } from '@/runtime/runtime-file-address'
 import type { AppState } from '@/store/types'
 
 /** `location` is what the grant was minted for, so its readers and its share key stay on that host. */
@@ -22,11 +23,19 @@ const grantsByPreviewId = new Map<string, Promise<DocPreviewGrantHandle>>()
 /** The page is filled in by `ensureDocPreviewGrant`, so the grant and its key name one surface. */
 export type DocPreviewGrantLocation = Omit<DocPreviewGrantRequest, 'browserPageId'>
 
-export function buildDocPreviewGrantRequest(
+/**
+ * A paired document outside its worktree is `host-path`: only its host can say whether it serves
+ * the path, so its location is held until that host answers.
+ */
+type DocPreviewGrantDraft =
+  | { kind: 'workspace'; location: DocPreviewGrantLocation }
+  | { kind: 'host-path'; environmentId: string; location: DocPreviewGrantLocation }
+
+function draftDocPreviewGrantRequest(
   state: AppState,
   worktreeId: string,
   filePath: string
-): DocPreviewGrantLocation | null {
+): DocPreviewGrantDraft | null {
   const worktreeRoot = state.getKnownWorktreeById(worktreeId)?.path ?? null
   const worktreeRelativePath = getRelativePathInsideRoot(filePath, worktreeRoot)
   const root = dirname(filePath)
@@ -40,23 +49,69 @@ export function buildDocPreviewGrantRequest(
     // Outside a workspace there is no broader request base: the document directory bounds
     // resolution, and main starts such a grant at the entry file alone — an out-of-workspace
     // directory is often a home directory, which is where secrets live.
-    return { owner: { kind: 'ssh', connectionId }, requestBase, root, entryRelativePath }
+    return {
+      kind: 'workspace',
+      location: { owner: { kind: 'ssh', connectionId }, requestBase, root, entryRelativePath }
+    }
   }
   const environmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
-  if (!environmentId || !worktreeRoot || !worktreeRelativePath) {
+  if (!environmentId || !worktreeRoot) {
     return null
   }
-  return {
-    owner: {
-      kind: 'runtime',
+  const worktreeSelector = toRuntimeWorktreeSelector(worktreeId)
+  if (!worktreeRelativePath) {
+    if (connectionId === undefined) {
+      return null
+    }
+    // Why the document's own folder: it bounds the grant, so an approval in one chat's page can
+    // never reach another chat's folder beside it.
+    return {
+      kind: 'host-path',
       environmentId,
-      worktreeSelector: toRuntimeWorktreeSelector(worktreeId),
-      worktreeRoot
-    },
-    requestBase,
-    root,
-    entryRelativePath
+      location: {
+        owner: { kind: 'host-path', environmentId, worktreeSelector },
+        requestBase: root,
+        root,
+        entryRelativePath
+      }
+    }
   }
+  return {
+    kind: 'workspace',
+    location: {
+      owner: { kind: 'runtime', environmentId, worktreeSelector, worktreeRoot },
+      requestBase,
+      root,
+      entryRelativePath
+    }
+  }
+}
+
+/** The grant request for a document its owner reads by workspace, or null without asking a host. */
+export function buildDocPreviewGrantRequest(
+  state: AppState,
+  worktreeId: string,
+  filePath: string
+): DocPreviewGrantLocation | null {
+  const draft = draftDocPreviewGrantRequest(state, worktreeId, filePath)
+  return draft?.kind === 'workspace' ? draft.location : null
+}
+
+/**
+ * {@link buildDocPreviewGrantRequest}, plus a paired or SSH host's document outside its workspaces
+ * when that host serves files by path. The grant starts at the entry file alone, and the host
+ * refuses any path it does not serve.
+ */
+export async function resolveDocPreviewGrantRequest(
+  state: AppState,
+  worktreeId: string,
+  filePath: string
+): Promise<DocPreviewGrantLocation | null> {
+  const draft = draftDocPreviewGrantRequest(state, worktreeId, filePath)
+  if (draft?.kind !== 'host-path') {
+    return draft?.location ?? null
+  }
+  return (await runtimeEnvironmentServesFilesByPath(draft.environmentId)) ? draft.location : null
 }
 
 export function ensureDocPreviewGrant(

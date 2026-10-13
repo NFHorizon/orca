@@ -8,6 +8,7 @@ export type DocPreviewGrantOwner =
       worktreeSelector: string
       worktreeRoot: string
     }
+  | { kind: 'host-path'; environmentId: string; worktreeSelector: string }
 
 export type DocPreviewGrantRequest = {
   owner: DocPreviewGrantOwner

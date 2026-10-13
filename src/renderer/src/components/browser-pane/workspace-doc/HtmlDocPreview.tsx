@@ -12,9 +12,9 @@ import {
 import { BrowserGuestAnnotateOverlays } from '@/components/browser-pane/annotate/browser-guest-annotate-overlays'
 import { attachDocPreviewWebview } from './doc-preview-webview-attach'
 import {
-  buildDocPreviewGrantRequest,
   ensureDocPreviewGrant,
   releaseDocPreviewGrant,
+  resolveDocPreviewGrantRequest,
   type DocPreviewGrantHandle
 } from '@/lib/doc-preview-grants'
 import { selectWorktreeHostDisplayLabel } from '@/lib/execution-host-display-label'
@@ -168,16 +168,16 @@ export function HtmlDocPreview({
     setDownloadBlocked(false)
     setGrant(null)
     resetHistory()
-    const request = buildDocPreviewGrantRequest(useAppStore.getState(), worktreeId, filePath)
-    if (!request) {
-      setState('unavailable')
-      return () => {
-        disposed = true
-      }
-    }
+    // Why async: a document outside its paired workspace waits on its host's answer.
+    const pendingRequest = resolveDocPreviewGrantRequest(
+      useAppStore.getState(),
+      worktreeId,
+      filePath
+    )
     // Why: an unreadable document answers with a status the guest renders as text, so the reason
     // arrives out-of-band. Subscribe before minting so the entry document's failure cannot be missed.
     let boundGrantId: string | null = null
+    let entryRelativePath: string | null = null
     const unsubscribeFailure = window.api.docPreview?.onLoadFailure?.((payload) => {
       if (disposed || payload.grantId !== boundGrantId) {
         return
@@ -192,7 +192,7 @@ export function HtmlDocPreview({
         offerDirectoryAccess(payload)
         return
       }
-      if (payload.relativePath === request.entryRelativePath) {
+      if (payload.relativePath === entryRelativePath) {
         setFailureReason(payload.reason)
         return
       }
@@ -203,8 +203,21 @@ export function HtmlDocPreview({
           : [...current, payload]
       )
     })
-    void ensureDocPreviewGrant(previewId, request)
+    void pendingRequest
+      .then((request) => {
+        if (!request || disposed) {
+          return null
+        }
+        entryRelativePath = request.entryRelativePath
+        return ensureDocPreviewGrant(previewId, request)
+      })
       .then((handle) => {
+        if (!handle) {
+          if (!disposed) {
+            setState('unavailable')
+          }
+          return
+        }
         boundGrantId = handle.grantId
         if (disposed || !containerRef.current) {
           return

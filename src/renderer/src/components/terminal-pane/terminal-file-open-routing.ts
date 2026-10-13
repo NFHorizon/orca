@@ -1,5 +1,6 @@
 import { absolutePathToFileUri } from '@/components/editor/markdown-internal-links'
 import { getWorkspaceFilePreviewPlan, openFileInBrowserTab } from '@/lib/file-preview'
+import { hostPathFilePreviewPlan } from '@/lib/host-path-file-preview'
 import { downloadAndOpenRemoteTerminalFile } from './terminal-remote-file-download-open'
 import { detectLanguage } from '@/lib/language-detect'
 import { findWorkspaceFileRoute } from '@/lib/runtime-workspace-file-route'
@@ -134,6 +135,7 @@ export function openDetectedFilePath(
     let hostWorkspaceFile: HostWorkspaceFile | null = null
     let hostGrantId: string | null = null
     let clientLocal = false
+    let hostServesPath = false
     if (!fileContext.sourceHostResolved) {
       // Why: with no owner the host is unknown — refuse rather than touch this machine's files.
       deps.onOpenFailure?.({
@@ -174,6 +176,7 @@ export function openDetectedFilePath(
         statResult = { isDirectory: false, escapesWorktree: true }
       } else if (linkOwner?.kind === 'host-path') {
         // Why: the tab keeps the absolute path and the host as its owner, so reads and saves go by path.
+        hostServesPath = true
         mappedFilePath = linkOwner.absolutePath
         statResult = { isDirectory: linkOwner.isDirectory, escapesWorktree: true }
       } else if (linkOwner?.kind === 'client') {
@@ -244,11 +247,14 @@ export function openDetectedFilePath(
         return
       }
       // Why: the same gesture renders remote HTML too, through the doc preview; only an
-      // unsupported plan (e.g. a paired doc outside the worktree) falls back to source.
-      const plan = getWorkspaceFilePreviewPlan(useAppStore.getState(), worktreeId, mappedFilePath)
+      // unsupported plan (e.g. a paired doc outside the worktree its host doesn't serve) falls
+      // back to source.
+      const plan = hostServesPath
+        ? hostPathFilePreviewPlan()
+        : getWorkspaceFilePreviewPlan(useAppStore.getState(), worktreeId, mappedFilePath)
       if (plan.status === 'doc-preview') {
         activateAndRevealWorktree(worktreeId, { providesInitialSurface: true })
-        openFileInBrowserTab({ filePath: mappedFilePath, worktreeId })
+        openFileInBrowserTab({ filePath: mappedFilePath, worktreeId, plan })
         return
       }
     }

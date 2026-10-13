@@ -40,6 +40,16 @@ function isValidGrantRequest(request: DocPreviewGrantRequest): boolean {
   if (request.owner.kind === 'ssh') {
     return Boolean(request.owner.connectionId.trim())
   }
+  if (request.owner.kind === 'host-path') {
+    // Why: outside a workspace the document's own folder is the whole boundary, so a page in one
+    // chat's scratch folder can never be approved into another's.
+    return Boolean(
+      request.owner.environmentId.trim() &&
+      request.owner.worktreeSelector.trim() &&
+      request.requestBase === request.root &&
+      !/[\\/]/.test(request.entryRelativePath)
+    )
+  }
   return Boolean(
     request.owner.environmentId.trim() &&
     request.owner.worktreeSelector.trim() &&
@@ -49,8 +59,9 @@ function isValidGrantRequest(request: DocPreviewGrantRequest): boolean {
 
 /**
  * Minting never widens what the renderer can already read: an SSH grant reads
- * through the same provider as `fs:readFile`, and a runtime grant through the
- * same worktree-scoped `files.read` RPC the renderer can call directly.
+ * through the same provider as `fs:readFile`, a runtime grant through the
+ * same worktree-scoped `files.read` RPC the renderer can call directly, and a
+ * host-path grant through the by-path reads that host already serves the renderer.
  */
 export function registerDocPreviewGrantHandlers(): void {
   ipcMain.handle(

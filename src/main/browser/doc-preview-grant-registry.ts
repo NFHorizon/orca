@@ -17,6 +17,13 @@ export type DocPreviewOwner =
       /** Worktree root on the runtime host; `files.read` only accepts paths inside it. */
       worktreeRoot: string
     }
+  | {
+      /** A document outside every workspace that its paired or SSH host serves by absolute path. */
+      kind: 'host-path'
+      environmentId: string
+      /** Workspace the reader opened the document from; the host reads the file by path either way. */
+      worktreeSelector: string
+    }
 
 export type DocPreviewGrant = {
   id: string

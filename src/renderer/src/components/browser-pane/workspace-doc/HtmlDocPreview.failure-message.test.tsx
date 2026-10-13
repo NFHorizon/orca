@@ -26,7 +26,7 @@ const grantRuntime = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/doc-preview-grants', () => ({
-  buildDocPreviewGrantRequest: () => ({
+  resolveDocPreviewGrantRequest: async () => ({
     owner: {
       kind: 'runtime' as const,
       environmentId: 'env-1',

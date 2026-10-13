@@ -10,6 +10,7 @@ import type { BrowserChromeShareControl } from '@/components/browser-pane/assemb
 import { isShareableHtmlPath } from '@/components/editor/editor-artifact-upload'
 import type { DocPreviewGrantLocation } from '@/lib/doc-preview-grants'
 import { fileArtifactSourceKey, type FileArtifactOwner } from '@/lib/file-artifact-source-key'
+import { userNamedFileAccess } from '@/lib/local-file-access'
 import { basename } from '@/lib/path'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
 import { readRuntimeFilePreview } from '@/runtime/runtime-file-read-client'
@@ -41,7 +42,8 @@ function docPreviewGrantReadContext(owner: DocPreviewGrantOwner): RuntimeFileOpe
     target: { kind: 'environment', environmentId: owner.environmentId },
     // A selector passes through toRuntimeWorktreeSelector unchanged.
     worktreeId: owner.worktreeSelector,
-    worktreePath: owner.worktreeRoot
+    // Why no root for a host-path owner: the document is outside every workspace, so the read goes by path.
+    worktreePath: owner.kind === 'runtime' ? owner.worktreeRoot : null
   }
 }
 
@@ -53,7 +55,12 @@ export async function readDocPreviewArtifactRequest(
 ): Promise<ArtifactWriteRequest> {
   let result: Awaited<ReturnType<typeof readRuntimeFilePreview>>
   try {
-    result = await readRuntimeFilePreview(docPreviewGrantReadContext(location.owner), filePath)
+    result = await readRuntimeFilePreview(
+      docPreviewGrantReadContext(location.owner),
+      filePath,
+      // Why: the same authority the editor reads this file with, since the reader opened it by name.
+      location.owner.kind === 'host-path' ? userNamedFileAccess() : undefined
+    )
   } catch {
     throw new ArtifactPublishPreparationError('unreadable')
   }

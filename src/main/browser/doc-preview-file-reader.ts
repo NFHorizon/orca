@@ -97,26 +97,33 @@ function toOutcome(source: PreviewFileBytes, contentType: string): DocPreviewRea
       }
 }
 
+/** `files.readDocPreview` params: the workspace form, or the by-path form a host-path grant sends. */
+type RuntimeDocPreviewReadParams =
+  | {
+      worktree: string
+      relativePath: string
+      entryRelativePath: string
+      implicitRootRelativePath: string | null
+      authorizedRootRelativePaths: string[]
+    }
+  | {
+      path: string
+      boundaryPath: string
+      entryPath: string
+      implicitRootPath: string | null
+      authorizedRootPaths: string[]
+    }
+
 async function readRuntimeDocPreviewFile(
   environmentId: string,
-  worktreeSelector: string,
-  relativePath: string,
-  entryRelativePath: string,
-  implicitRootRelativePath: string | null,
-  authorizedRootRelativePaths: string[]
+  params: RuntimeDocPreviewReadParams
 ): Promise<PreviewFileBytes> {
   const userDataPath = getCanonicalUserDataPath()
   const response = await callRuntimeEnvironment(
     userDataPath,
     environmentId,
     'files.readDocPreview',
-    {
-      worktree: worktreeSelector,
-      relativePath,
-      entryRelativePath,
-      implicitRootRelativePath,
-      authorizedRootRelativePaths
-    },
+    params,
     DOC_PREVIEW_READ_TIMEOUT_MS
   )
   if (!response.ok) {
@@ -163,6 +170,24 @@ export async function readDocPreviewFile(
     if (grant.owner.kind === 'ssh') {
       return notFoundOutcome(SSH_HOST_NOT_SERVED_MESSAGE)
     }
+    if (grant.owner.kind === 'host-path') {
+      const authority = resolveDocPreviewAuthorityPaths(grant)
+      if (!authority.entryPath) {
+        return notFoundOutcome()
+      }
+      // Why the grant's paths verbatim: the host checks each against what it serves and confines
+      // the read to the entry or an approved directory inside the boundary, with symlinks resolved.
+      return toOutcome(
+        await readRuntimeDocPreviewFile(grant.owner.environmentId, {
+          path: absolutePath,
+          boundaryPath: grant.requestBase,
+          entryPath: authority.entryPath,
+          implicitRootPath: authority.implicitRootPath,
+          authorizedRootPaths: authority.authorizedRootPaths
+        }),
+        contentType
+      )
+    }
     const runtimeOwner = grant.owner
     const worktreeRelativePath = toRuntimeWorktreeRelativePath(
       runtimeOwner.worktreeRoot,
@@ -186,14 +211,13 @@ export async function readDocPreviewFile(
       return notFoundOutcome()
     }
     return toOutcome(
-      await readRuntimeDocPreviewFile(
-        runtimeOwner.environmentId,
-        runtimeOwner.worktreeSelector,
-        worktreeRelativePath,
+      await readRuntimeDocPreviewFile(runtimeOwner.environmentId, {
+        worktree: runtimeOwner.worktreeSelector,
+        relativePath: worktreeRelativePath,
         entryRelativePath,
         implicitRootRelativePath,
         authorizedRootRelativePaths
-      ),
+      }),
       contentType
     )
   } catch (error) {
