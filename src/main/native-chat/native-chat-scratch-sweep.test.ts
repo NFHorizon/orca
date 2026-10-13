@@ -10,6 +10,7 @@ import {
   utimesSync,
   writeFileSync
 } from 'node:fs'
+import type * as FsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -30,12 +31,12 @@ import {
 // Paths whose listing fails, for a root this host cannot read.
 const unlistable = vi.hoisted(() => new Set<string>())
 vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>()
-  const readdir: typeof actual.readdir = async (path, ...rest) => {
-    if (unlistable.has(String(path))) {
+  const actual = await importOriginal<typeof FsPromises>()
+  const readdir = async (...args: Parameters<typeof actual.readdir>) => {
+    if (unlistable.has(String(args[0]))) {
       throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
     }
-    return actual.readdir(path, ...rest)
+    return actual.readdir(...args)
   }
   return { ...actual, readdir, default: { ...actual, readdir } }
 })
