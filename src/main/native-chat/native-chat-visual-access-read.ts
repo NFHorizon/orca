@@ -14,9 +14,9 @@ export const CHAT_VISUAL_NOT_FOUND_MESSAGE = 'ENOENT: no such file or directory'
 // Why ordinary read errors: a caller tells missing, refused and too large apart as for any file;
 // `file_too_large` and `binary_file` are the host's typed refusals for `files.read`.
 function refusalMessage(refusal: AgentSessionVisualReadError): string {
+  // Session lookups belong to the legacy endpoint; a path read never produces them.
   switch (refusal) {
     case 'not_found':
-    // Session lookups belong to the legacy endpoint; a path read never produces them.
     case 'session_not_found':
       return CHAT_VISUAL_NOT_FOUND_MESSAGE
     case 'outside_folder':
