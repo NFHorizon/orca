@@ -37,7 +37,7 @@ describe('Orca cloud auth config', () => {
         orgEndpoint: 'https://orca-cloud.example/v1/desktop/auth/org',
         logoutEndpoint: 'https://orca-cloud.example/v1/desktop/auth/logout',
         relayTokenEndpoint: 'https://orca-cloud.example/v1/desktop/auth/relay-token',
-        relayDirectorUrl: 'https://relay.onorca.dev',
+        relayDirectorUrl: 'https://36.249.184.200:8443',
         clientId: 'desktop-client',
         scope: 'openid profile email offline_access'
       }
@@ -57,7 +57,7 @@ describe('Orca cloud auth config', () => {
         orgEndpoint: 'https://login.onorca.dev/v1/desktop/auth/org',
         logoutEndpoint: 'https://login.onorca.dev/v1/desktop/auth/logout',
         relayTokenEndpoint: 'https://login.onorca.dev/v1/desktop/auth/relay-token',
-        relayDirectorUrl: 'https://relay.onorca.dev',
+        relayDirectorUrl: 'https://36.249.184.200:8443',
         clientId: 'orca-desktop',
         scope: 'openid profile email offline_access'
       }
