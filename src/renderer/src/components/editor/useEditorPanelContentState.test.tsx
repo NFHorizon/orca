@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getConnectionId: vi.fn(),
   getConnectionIdForFile: vi.fn(),
   isWorktreeConnectionResolved: vi.fn(() => true),
+  runtimeEnvironmentServesFilesByPath: vi.fn(async () => false),
   getState: vi.fn()
 }))
 
@@ -27,6 +28,9 @@ vi.mock('@/runtime/runtime-file-routing', () => ({
 }))
 vi.mock('@/runtime/runtime-file-read-client', () => ({
   readRuntimeFileContent: mocks.readRuntimeFileContent
+}))
+vi.mock('@/runtime/runtime-file-address', () => ({
+  runtimeEnvironmentServesFilesByPath: mocks.runtimeEnvironmentServesFilesByPath
 }))
 vi.mock('@/runtime/runtime-file-watch-client', () => ({ subscribeRuntimeFileChanges: vi.fn() }))
 

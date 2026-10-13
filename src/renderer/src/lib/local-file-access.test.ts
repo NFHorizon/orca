@@ -121,6 +121,27 @@ describe('editorTabFileAccess', () => {
         runtimeEnvironmentId: 'env-1',
         readOnly: true
       },
+      // The server's file, named by the user: its host reads it by path (never this computer).
+      'user-file'
+    ],
+    [
+      'a server file outside every workspace that its host serves by path',
+      {
+        filePath: '/home/me/state/ab12/report.md',
+        relativePath: '/home/me/state/ab12/report.md',
+        worktreeId: localWorktreeId,
+        runtimeEnvironmentId: 'env-1'
+      },
+      'user-file'
+    ],
+    [
+      'a server project tab, which stays inside its root',
+      {
+        filePath: '/srv/repo/a.md',
+        relativePath: 'a.md',
+        worktreeId: localWorktreeId,
+        runtimeEnvironmentId: 'env-1'
+      },
       undefined
     ],
     [
@@ -220,6 +241,16 @@ describe('editorTabDocumentFolderAccess', () => {
         worktreeId: 'repo-ssh::/work/project',
         readOnly: true,
         liveTail: true
+      }
+    ],
+    [
+      // Rename and image insert have no by-path form on a host.
+      'a server file its host serves by path',
+      {
+        filePath: '/home/me/state/ab12/report.md',
+        relativePath: '/home/me/state/ab12/report.md',
+        worktreeId: localWorktreeId,
+        runtimeEnvironmentId: 'env-1'
       }
     ]
   ])('grants no folder writes to %s', (_label, file) => {

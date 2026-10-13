@@ -61,7 +61,7 @@ export function canReadRelativeRuntimeFile(
   return Boolean(relativePath && relativePath.trim() && !isAbsolutePathLike(relativePath))
 }
 
-function isAbsolutePathLike(value: string): boolean {
+export function isAbsolutePathLike(value: string): boolean {
   return value.startsWith('/') || isWindowsAbsolutePathLike(value)
 }
 

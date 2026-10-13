@@ -5,7 +5,7 @@ import {
   type PathExistenceResult
 } from '../../../shared/path-existence-batch'
 import type { RuntimeFileOperationArgs } from './runtime-file-client-types'
-import { assertLocalFilesystemFallbackAllowed, getRemoteFileArgs } from './runtime-file-routing'
+import { getRemoteFileArgs, hasRemoteRuntimeOwner } from './runtime-file-routing'
 import { isMissingRuntimePathError, runtimePathExists } from './runtime-file-metadata-client'
 import { captureRuntimeEnvironmentRequestRevision } from './runtime-environment-revision'
 import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from './runtime-rpc-client'
@@ -30,9 +30,12 @@ export async function runtimePathsExist(
       )
     )
   if (!first || routes.some((route) => !route)) {
-    if (routes.every((route) => !route) && window.api.fs.pathsExist) {
-      // Scalar routing performs the same ownership fence before local IPC.
-      assertLocalFilesystemFallbackAllowed(context)
+    // Why: a runtime owner's outside paths may be its host's files; each asks that host by path.
+    if (
+      routes.every((route) => !route) &&
+      window.api.fs.pathsExist &&
+      !hasRemoteRuntimeOwner(context)
+    ) {
       return requirePathExistenceResults(
         await window.api.fs.pathsExist({ filePaths: paths, connectionId: context.connectionId }),
         paths.length

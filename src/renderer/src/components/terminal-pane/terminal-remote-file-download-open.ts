@@ -5,6 +5,7 @@ import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { basename } from '@/lib/path'
 import { downloadRuntimeFile } from '@/runtime/runtime-file-read-client'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
+import { userNamedFileAccess } from '@/lib/local-file-access'
 
 /**
  * Remote counterpart of "Open with default app": the OS can only launch a local
@@ -18,7 +19,7 @@ export async function downloadAndOpenRemoteTerminalFile(
   try {
     const result = fileContext.connectionId
       ? await window.api.fs.downloadFile({ filePath, connectionId: fileContext.connectionId })
-      : await downloadRuntimeFile(fileContext, filePath, name)
+      : await downloadRuntimeFile(fileContext, filePath, name, userNamedFileAccess())
     // Why: cancelling the native save dialog is a deliberate no-op, not a failure.
     if (result.canceled) {
       return

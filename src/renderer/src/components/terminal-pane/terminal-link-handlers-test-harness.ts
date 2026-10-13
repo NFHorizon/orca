@@ -7,6 +7,7 @@ import {
 } from '@/runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
 import type { TerminalLinkTestDoubles } from './terminal-link-handlers-test-fixtures'
+import { PATH_OUTSIDE_ALLOWED_DIRECTORIES } from '../../../../shared/local-file-access'
 
 export function setPlatform(userAgent: string): void {
   vi.stubGlobal('navigator', { userAgent })
@@ -29,6 +30,14 @@ export async function flushDoubleRaf(): Promise<void> {
   await flushAsyncWork()
 }
 
+/** What a host advertising `files.host-path.v1` answers for a path outside its workspaces and scratch folder. */
+export const HOST_PATH_REFUSAL = {
+  id: 'rpc-host-path',
+  ok: false,
+  error: { code: 'runtime_error', message: PATH_OUTSIDE_ALLOWED_DIRECTORIES },
+  _meta: { runtimeId: 'remote-runtime' }
+}
+
 /** Per-spec window/IPC stubs plus mock resets every terminal link suite shares. */
 export function installTerminalLinkTestEnvironment(doubles: TerminalLinkTestDoubles): void {
   const {
@@ -39,6 +48,7 @@ export function installTerminalLinkTestEnvironment(doubles: TerminalLinkTestDoub
     fsPathExistsMock,
     runtimeEnvironmentCallMock,
     runtimeEnvironmentTransportCallMock,
+    hostPathStatMock,
     storeState
   } = doubles
 
@@ -46,8 +56,13 @@ export function installTerminalLinkTestEnvironment(doubles: TerminalLinkTestDoub
     clearRuntimeCompatibilityCacheForTests()
     vi.clearAllMocks()
     runtimeEnvironmentTransportCallMock.mockReset()
+    hostPathStatMock.mockReset()
+    hostPathStatMock.mockReturnValue(HOST_PATH_REFUSAL)
     runtimeEnvironmentTransportCallMock.mockImplementation(
       (args: RuntimeEnvironmentCallRequest) => {
+        if (args.method === 'files.stat' && args.params && 'path' in args.params) {
+          return hostPathStatMock(args)
+        }
         return (
           createCompatibleRuntimeStatusResponseIfNeeded(args) ?? runtimeEnvironmentCallMock(args)
         )

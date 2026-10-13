@@ -16,6 +16,11 @@ import {
 } from '@/components/terminal-pane/terminal-file-link-target'
 import { getTerminalFileContext } from '@/components/terminal-pane/terminal-file-path-mapping'
 import { runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
+import { runtimeEnvironmentServesFilesByPath } from '@/runtime/runtime-file-address'
+import {
+  hostFileLinkTargetExists,
+  isHostPathOutsideWorkspace
+} from '@/components/terminal-pane/terminal-host-file-link-existence'
 
 // Why: a host that could not answer is retried a few times, then waits for the next recheck.
 export const UNVERIFIABLE_RETRY_DELAYS_MS = [2_000, 10_000, 30_000] as const
@@ -136,6 +141,15 @@ export function createNativeChatFileLinkExistence(
           runtimeTargetEnvironmentId(target.fileContext.target)
       ) {
         throw new Error('The workspace host changed or could not be determined')
+      }
+      const environmentId = runtimeTargetEnvironmentId(target.fileContext.target)
+      if (
+        environmentId &&
+        isHostPathOutsideWorkspace(target) &&
+        (await runtimeEnvironmentServesFilesByPath(environmentId))
+      ) {
+        // Why: a path such a host serves (its chat scratch folder) is the host's, not this computer's.
+        return hostFileLinkTargetExists(target, new Map(), null)
       }
       return pathExists(target.fileContext, target.absolutePath, target.isRemoteRuntimePath)
     }

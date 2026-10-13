@@ -4,6 +4,7 @@ import { getConnectionIdForFile, isWorktreeConnectionResolved } from '@/lib/conn
 import { useAppStore } from '@/store'
 import { getDiskBaselineSignature } from './diff-content-signature'
 import { getRuntimeFileReadScope } from '@/runtime/runtime-file-routing'
+import { runtimeEnvironmentServesFilesByPath } from '@/runtime/runtime-file-address'
 import { readEditorCsvFileContent } from './csv/csv-file-content'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
@@ -185,7 +186,13 @@ export function useEditorPanelFileContentLoader({
               await reownRestoredFile(route, runtimeEnvironmentId ?? null)
               return
             }
-            if (runtimeEnvironmentId && !route && !restoredOpenFile.terminalArtifactGrantId) {
+            if (
+              runtimeEnvironmentId &&
+              !route &&
+              !restoredOpenFile.terminalArtifactGrantId &&
+              // Why: a host that serves paths answers for this file itself, refusing what it won't reach.
+              (externalSshOwnerId || !(await runtimeEnvironmentServesFilesByPath(runtimeEnvironmentId)))
+            ) {
               throw new Error('External local files are not available for remote workspaces.')
             }
             if (!externalSshOwnerId) {

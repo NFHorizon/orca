@@ -13,6 +13,11 @@ import { callRuntimeFileMutation } from './runtime-file-mutation-rpc'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
 import { localAccess } from './runtime-file-read-client'
+import {
+  getRuntimeWorkspaceFileAddress,
+  mayAddressByHostPath,
+  resolveRuntimeHostPathAddress
+} from './runtime-file-address'
 
 export async function readRuntimeDirectory(
   context: RuntimeFileOperationArgs,
@@ -38,8 +43,12 @@ export async function writeRuntimeFile(
   content: string,
   access?: LocalFileAccess
 ): Promise<void> {
-  const remoteArgs = getRemoteFileArgs(context, filePath)
-  if (!remoteArgs) {
+  const address =
+    getRuntimeWorkspaceFileAddress(context, filePath) ??
+    (mayAddressByHostPath(context, filePath)
+      ? await resolveRuntimeHostPathAddress(context, filePath, access)
+      : null)
+  if (!address) {
     assertLocalFilesystemFallbackAllowed(context)
     await window.api.fs.writeFile(
       withSshMutationExpectation(context, {
@@ -52,13 +61,9 @@ export async function writeRuntimeFile(
     return
   }
   await callRuntimeFileMutation(
-    remoteArgs.target,
+    address.target,
     'files.write',
-    withSshMutationExpectation(context, {
-      worktree: remoteArgs.worktreeSelector,
-      relativePath: remoteArgs.relativePath,
-      content
-    }),
+    withSshMutationExpectation(context, { ...address.params, content }),
     15_000
   )
 }

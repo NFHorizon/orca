@@ -172,6 +172,10 @@ export function openDetectedFilePath(
         hostGrantId = linkOwner.grantId
         mappedFilePath = linkOwner.absolutePath
         statResult = { isDirectory: false, escapesWorktree: true }
+      } else if (linkOwner?.kind === 'host-path') {
+        // Why: the tab keeps the absolute path and the host as its owner, so reads and saves go by path.
+        mappedFilePath = linkOwner.absolutePath
+        statResult = { isDirectory: linkOwner.isDirectory, escapesWorktree: true }
       } else if (linkOwner?.kind === 'client') {
         clientLocal = true
         fileContext = {

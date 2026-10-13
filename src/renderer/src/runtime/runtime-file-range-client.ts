@@ -1,28 +1,30 @@
 import type { RuntimeFileReadChunkResult } from '../../../shared/runtime-types'
 import { validateFileRangeRequest } from '../../../shared/file-range-read'
 import type { RuntimeFileReadArgs } from './runtime-file-client-types'
-import { assertExternalSshReadOwnership, canReadRelativeRuntimeFile } from './runtime-file-routing'
+import { assertExternalSshReadOwnership } from './runtime-file-routing'
 import { callRuntimeRpc } from './runtime-rpc-client'
 import { RuntimeRpcCallError } from './runtime-rpc-result'
-import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
+import {
+  getRuntimeWorkspaceReadAddress,
+  resolveRuntimeHostPathAddress,
+  type RuntimeFileAddress
+} from './runtime-file-address'
 
-function rangeReadTarget(args: RuntimeFileReadArgs) {
+async function rangeReadAddress(args: RuntimeFileReadArgs): Promise<RuntimeFileAddress | null> {
   assertExternalSshReadOwnership(args.target, args.connectionId, args.expectedExternalSshTargetId)
-  const target = args.target
-  if (target.kind !== 'environment') {
+  if (args.target.kind !== 'environment') {
     return null
   }
   if (!args.worktreeId) {
     throw new Error('Remote file has no owning runtime worktree')
   }
-  if (!canReadRelativeRuntimeFile(args.relativePath)) {
+  const address =
+    getRuntimeWorkspaceReadAddress(args) ??
+    (await resolveRuntimeHostPathAddress(args, args.filePath, args.access))
+  if (!address) {
     throw new Error('Remote file is outside the owning runtime worktree')
   }
-  return {
-    target,
-    worktree: toRuntimeWorktreeSelector(args.worktreeId),
-    relativePath: args.relativePath
-  }
+  return address
 }
 
 export type RuntimeFileSnapshot = { size: number; isDirectory: boolean; mtime: number }
@@ -30,7 +32,7 @@ export type RuntimeFileSnapshot = { size: number; isDirectory: boolean; mtime: n
 export async function statRuntimeReadTarget(
   args: RuntimeFileReadArgs
 ): Promise<RuntimeFileSnapshot> {
-  const remote = rangeReadTarget(args)
+  const remote = await rangeReadAddress(args)
   if (!remote) {
     return window.api.fs.stat({
       filePath: args.filePath,
@@ -38,15 +40,9 @@ export async function statRuntimeReadTarget(
       access: args.access
     })
   }
-  return callRuntimeRpc<RuntimeFileSnapshot>(
-    remote.target,
-    'files.stat',
-    {
-      worktree: remote.worktree,
-      relativePath: remote.relativePath
-    },
-    { timeoutMs: 15_000 }
-  )
+  return callRuntimeRpc<RuntimeFileSnapshot>(remote.target, 'files.stat', remote.params, {
+    timeoutMs: 15_000
+  })
 }
 
 export async function readRuntimeFileRange(
@@ -55,19 +51,14 @@ export async function readRuntimeFileRange(
   length: number
 ): Promise<Uint8Array<ArrayBuffer>> {
   validateFileRangeRequest(offset, length)
-  const remote = rangeReadTarget(args)
   let result: RuntimeFileReadChunkResult
   try {
+    const remote = await rangeReadAddress(args)
     result = remote
       ? await callRuntimeRpc<RuntimeFileReadChunkResult>(
           remote.target,
           'files.readChunk',
-          {
-            worktree: remote.worktree,
-            relativePath: remote.relativePath,
-            offset,
-            length
-          },
+          { ...remote.params, offset, length },
           { timeoutMs: 60_000 }
         )
       : await window.api.fs.readFileChunk({

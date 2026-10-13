@@ -38,6 +38,8 @@ export type TerminalLinkTestDoubles = {
   fsPathExistsMock: Mock
   runtimeEnvironmentCallMock: Mock
   runtimeEnvironmentTransportCallMock: Mock
+  /** The host's answer to `files.stat` by path; refuses (outside its reach) unless a spec overrides it. */
+  hostPathStatMock: Mock
   setActiveWorktreeMock: Mock
   createBrowserTabMock: Mock
   setPendingEditorRevealMock: Mock
@@ -56,6 +58,7 @@ export function createTerminalLinkTestDoubles(): TerminalLinkTestDoubles {
   const fsPathExistsMock = vi.fn().mockResolvedValue(true)
   const runtimeEnvironmentCallMock = vi.fn()
   const runtimeEnvironmentTransportCallMock = vi.fn()
+  const hostPathStatMock = vi.fn()
   const setActiveWorktreeMock = vi.fn()
   const createBrowserTabMock = vi.fn()
   const setPendingEditorRevealMock = vi.fn()
@@ -84,6 +87,7 @@ export function createTerminalLinkTestDoubles(): TerminalLinkTestDoubles {
     fsPathExistsMock,
     runtimeEnvironmentCallMock,
     runtimeEnvironmentTransportCallMock,
+    hostPathStatMock,
     setActiveWorktreeMock,
     createBrowserTabMock,
     setPendingEditorRevealMock,

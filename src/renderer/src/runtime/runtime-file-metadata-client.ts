@@ -1,6 +1,11 @@
 import type { MarkdownDocument } from '../../../shared/filesystem-entry-types'
 import type { RuntimeFileOperationArgs } from './runtime-file-client-types'
-import { assertLocalFilesystemFallbackAllowed, getRemoteFileArgs } from './runtime-file-routing'
+import { assertLocalFilesystemFallbackAllowed } from './runtime-file-routing'
+import {
+  getRuntimeWorkspaceFileAddress,
+  mayAddressByHostPath,
+  resolveRuntimeHostPathAddress
+} from './runtime-file-address'
 import { callRuntimeRpc } from './runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
@@ -30,8 +35,12 @@ export async function statRuntimePath(
   absolutePath: string,
   access?: LocalFileAccess
 ): Promise<{ size: number; isDirectory: boolean; mtime: number }> {
-  const remoteArgs = getRemoteFileArgs(context, absolutePath)
-  if (!remoteArgs) {
+  const address =
+    getRuntimeWorkspaceFileAddress(context, absolutePath) ??
+    (mayAddressByHostPath(context, absolutePath)
+      ? await resolveRuntimeHostPathAddress(context, absolutePath, access)
+      : null)
+  if (!address) {
     assertLocalFilesystemFallbackAllowed(context)
     return window.api.fs.stat({
       filePath: absolutePath,
@@ -40,9 +49,9 @@ export async function statRuntimePath(
     })
   }
   return callRuntimeRpc<{ size: number; isDirectory: boolean; mtime: number }>(
-    remoteArgs.target,
+    address.target,
     'files.stat',
-    { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath },
+    address.params,
     { timeoutMs: 15_000 }
   )
 }
@@ -59,8 +68,12 @@ export async function runtimePathExists(
   absolutePath: string,
   expectedEnvironmentPairingRevision?: number
 ): Promise<boolean> {
-  const remoteArgs = getRemoteFileArgs(context, absolutePath)
-  if (!remoteArgs) {
+  const address =
+    getRuntimeWorkspaceFileAddress(context, absolutePath) ??
+    (mayAddressByHostPath(context, absolutePath)
+      ? await resolveRuntimeHostPathAddress(context, absolutePath)
+      : null)
+  if (!address) {
     assertLocalFilesystemFallbackAllowed(context)
     return window.api.fs.pathExists({
       filePath: absolutePath,
@@ -69,12 +82,10 @@ export async function runtimePathExists(
   }
 
   try {
-    await callRuntimeRpc(
-      remoteArgs.target,
-      'files.stat',
-      { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath },
-      { timeoutMs: 15_000, expectedEnvironmentPairingRevision }
-    )
+    await callRuntimeRpc(address.target, 'files.stat', address.params, {
+      timeoutMs: 15_000,
+      expectedEnvironmentPairingRevision
+    })
     return true
   } catch (err) {
     if (isMissingRuntimePathError(err)) {

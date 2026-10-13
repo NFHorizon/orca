@@ -81,8 +81,15 @@ export function editorTabFileAccess(
     return USER_FILE_ACCESS
   }
   const owner = getRuntimeTargetForFileOwner(state, file.worktreeId, file.runtimeEnvironmentId)
+  if (file.externalSshTargetId?.trim()) {
+    return undefined
+  }
+  // Why: a paired or SSH host serves a path the user opened outside its workspaces by that path.
+  if (owner?.kind === 'environment' && file.relativePath === file.filePath) {
+    return USER_FILE_ACCESS
+  }
   // Why `!owner`: rows that disagree may put the path on another host.
-  if (file.externalSshTargetId?.trim() || owner?.kind !== 'local') {
+  if (owner?.kind !== 'local') {
     return undefined
   }
   const outsideOwnerRoot =
@@ -102,8 +109,13 @@ export function editorTabDocumentFolderAccess(
   state: WorktreeRuntimeOwnerState,
   file: EditorTabAccessFile
 ): LocalFileAccess | undefined {
-  // Why: a read-only tab (an AI Vault log, possibly in an SSH workspace) is never written.
-  if (file.readOnly === true) {
+  // Why: a read-only tab (an AI Vault log, possibly in an SSH workspace) is never written. A host
+  // file's folder actions (rename, image insert) have no path form, so they keep the project checks.
+  if (
+    file.readOnly === true ||
+    getRuntimeTargetForFileOwner(state, file.worktreeId, file.runtimeEnvironmentId)?.kind !==
+      'local'
+  ) {
     return undefined
   }
   return editorTabFileAccess(state, file)?.kind === 'user-file'

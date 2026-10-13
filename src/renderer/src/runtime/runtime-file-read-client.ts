@@ -11,13 +11,14 @@ import type {
   RuntimeFileReadArgs,
   RuntimeReadableFileContent
 } from './runtime-file-client-types'
+import { assertExternalSshReadOwnership, hasRemoteRuntimeOwner } from './runtime-file-routing'
 import {
-  assertExternalSshReadOwnership,
-  canReadRelativeRuntimeFile,
-  getRemoteFileArgs,
-  hasRemoteRuntimeOwner
-} from './runtime-file-routing'
-import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
+  getRuntimeWorkspaceFileAddress,
+  getRuntimeWorkspaceReadAddress,
+  mayAddressByHostPath,
+  resolveRuntimeHostPathAddress,
+  type RuntimeFileAddress
+} from './runtime-file-address'
 import { isAgentSessionAttachmentStorePath } from '../../../shared/agent-session-attachments'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
 import { readRuntimeTerminalArtifactContent } from './runtime-terminal-artifact-read'
@@ -25,8 +26,6 @@ import { readRuntimeTerminalArtifactContent } from './runtime-terminal-artifact-
 const REMOTE_DOWNLOAD_CHUNK_BYTES = 384 * 1024
 const REMOTE_DOWNLOAD_UPDATE_REQUIRED_MESSAGE =
   'Remote file download requires a newer Orca server. Update the headless server and try again.'
-
-type RemoteFileDownloadArgs = NonNullable<ReturnType<typeof getRemoteFileArgs>>
 
 // Why local only: an SSH read is the remote host's to check, and its relay never sees this field.
 export function localAccess(
@@ -64,17 +63,19 @@ export async function readRuntimeFileContent({
       grantId: terminalArtifactGrantId
     })
   }
-  if (!canReadRelativeRuntimeFile(relativePath)) {
+  const address =
+    getRuntimeWorkspaceReadAddress({ target, filePath, relativePath, worktreeId }) ??
+    (await resolveRuntimeHostPathAddress({ target, worktreeId, connectionId }, filePath, access))
+  if (!address) {
     throw new Error('Remote file is outside the owning runtime worktree')
   }
 
-  const worktree = toRuntimeWorktreeSelector(worktreeId)
   let result: RuntimeFileReadResult
   try {
     result = await callRuntimeRpc<RuntimeFileReadResult>(
-      target,
+      address.target,
       'files.read',
-      { worktree, relativePath },
+      address.params,
       { timeoutMs: 15_000 }
     )
   } catch (err) {
@@ -83,9 +84,9 @@ export async function readRuntimeFileContent({
     // Match the exact typed error so an unrelated failure can't spoof the fallback.
     if (err instanceof RuntimeRpcCallError && err.message === 'binary_file') {
       return callRuntimeRpc<RuntimeFilePreviewResult>(
-        target,
+        address.target,
         'files.readPreview',
-        { worktree, relativePath },
+        address.params,
         { timeoutMs: 15_000 }
       )
     }
@@ -109,12 +110,12 @@ export async function readRuntimeFilePreview(
     context.connectionId,
     context.expectedExternalSshTargetId
   )
-  const remoteArgs = getRemoteFileArgs(context, filePath)
   const runtimeTarget = context.target
+  const workspaceAddress = getRuntimeWorkspaceFileAddress(context, filePath)
   // A chat attachment lives in the paired server's store, outside every worktree; that server
   // reads it back itself (an older one answers method_not_found, and the preview falls back).
   if (
-    !remoteArgs &&
+    !workspaceAddress &&
     runtimeTarget.kind === 'environment' &&
     isAgentSessionAttachmentStorePath(filePath)
   ) {
@@ -125,7 +126,12 @@ export async function readRuntimeFilePreview(
       { timeoutMs: 15_000 }
     )
   }
-  if (!remoteArgs) {
+  const address =
+    workspaceAddress ??
+    (mayAddressByHostPath(context, filePath)
+      ? await resolveRuntimeHostPathAddress(context, filePath, access)
+      : null)
+  if (!address) {
     if (hasRemoteRuntimeOwner(context)) {
       throw new Error('Remote file is outside the owning runtime worktree')
     }
@@ -136,9 +142,9 @@ export async function readRuntimeFilePreview(
     })
   }
   return callRuntimeRpc<RuntimeFilePreviewResult>(
-    remoteArgs.target,
+    address.target,
     'files.readPreview',
-    { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath },
+    address.params,
     { timeoutMs: 15_000 }
   )
 }
@@ -146,15 +152,20 @@ export async function readRuntimeFilePreview(
 export async function downloadRuntimeFile(
   context: RuntimeFileOperationArgs,
   filePath: string,
-  suggestedName: string
+  suggestedName: string,
+  access?: LocalFileAccess
 ): Promise<RuntimeFileDownloadResult> {
   assertExternalSshReadOwnership(
     context.target,
     context.connectionId,
     context.expectedExternalSshTargetId
   )
-  const remoteArgs = getRemoteFileArgs(context, filePath)
-  if (!remoteArgs) {
+  const address =
+    getRuntimeWorkspaceFileAddress(context, filePath) ??
+    (mayAddressByHostPath(context, filePath)
+      ? await resolveRuntimeHostPathAddress(context, filePath, access)
+      : null)
+  if (!address) {
     if (hasRemoteRuntimeOwner(context)) {
       throw new Error('Remote file is outside the owning runtime worktree')
     }
@@ -169,8 +180,8 @@ export async function downloadRuntimeFile(
     })
   }
 
-  if (!(await remoteChunkedDownloadAvailable(remoteArgs))) {
-    return downloadRemoteFileViaPreview(remoteArgs, suggestedName)
+  if (!(await remoteChunkedDownloadAvailable(address))) {
+    return downloadRemoteFileViaPreview(address, suggestedName)
   }
 
   const download = await window.api.fs.startDownloadedFile({ suggestedName })
@@ -182,7 +193,7 @@ export async function downloadRuntimeFile(
   try {
     let offset = 0
     for (;;) {
-      const chunk = await readRemoteDownloadChunk(remoteArgs, offset)
+      const chunk = await readRemoteDownloadChunk(address, offset)
       if (chunk.bytesRead > 0) {
         await window.api.fs.appendDownloadedFileChunk({
           transferId: download.transferId,
@@ -207,19 +218,12 @@ export async function downloadRuntimeFile(
   }
 }
 
-async function remoteChunkedDownloadAvailable(
-  remoteArgs: RemoteFileDownloadArgs
-): Promise<boolean> {
+async function remoteChunkedDownloadAvailable(address: RuntimeFileAddress): Promise<boolean> {
   try {
     await callRuntimeRpc<RuntimeFileReadChunkResult>(
-      remoteArgs.target,
+      address.target,
       'files.readChunk',
-      {
-        worktree: remoteArgs.worktreeSelector,
-        relativePath: remoteArgs.relativePath,
-        offset: 0,
-        length: 1
-      },
+      { ...address.params, offset: 0, length: 1 },
       { timeoutMs: 60_000 }
     )
     return true
@@ -234,31 +238,26 @@ async function remoteChunkedDownloadAvailable(
 }
 
 async function readRemoteDownloadChunk(
-  remoteArgs: RemoteFileDownloadArgs,
+  address: RuntimeFileAddress,
   offset: number
 ): Promise<RuntimeFileReadChunkResult> {
   return callRuntimeRpc<RuntimeFileReadChunkResult>(
-    remoteArgs.target,
+    address.target,
     'files.readChunk',
-    {
-      worktree: remoteArgs.worktreeSelector,
-      relativePath: remoteArgs.relativePath,
-      offset,
-      length: REMOTE_DOWNLOAD_CHUNK_BYTES
-    },
+    { ...address.params, offset, length: REMOTE_DOWNLOAD_CHUNK_BYTES },
     { timeoutMs: 60_000 }
   )
 }
 
 async function downloadRemoteFileViaPreview(
-  remoteArgs: RemoteFileDownloadArgs,
+  address: RuntimeFileAddress,
   suggestedName: string
 ): Promise<RuntimeFileDownloadResult> {
   try {
     const result = await callRuntimeRpc<RuntimeFilePreviewResult>(
-      remoteArgs.target,
+      address.target,
       'files.readPreview',
-      { worktree: remoteArgs.worktreeSelector, relativePath: remoteArgs.relativePath },
+      address.params,
       { timeoutMs: 15_000 }
     )
     // Why: old servers use an empty, metadata-free binary result to signal an

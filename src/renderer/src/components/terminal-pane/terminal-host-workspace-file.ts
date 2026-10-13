@@ -2,11 +2,13 @@ import { callHostRoute } from '@/runtime/host-route-call'
 import { hostRouteForAuthority, runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
-import { statRuntimePath } from '@/runtime/runtime-file-metadata-client'
+import { isMissingRuntimePathError, statRuntimePath } from '@/runtime/runtime-file-metadata-client'
+import { resolveRuntimeHostPathAddress } from '@/runtime/runtime-file-address'
+import { isPathOutsideAllowedDirectoriesError } from '../../../../shared/local-file-access'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-routing'
 import { userNamedFileAccess } from '@/lib/local-file-access'
 import { isPairedWebClientWindow } from '@/lib/desktop-window-chrome'
-import { runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import { toRuntimeExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
 import {
@@ -34,6 +36,13 @@ export type HostGrantedFile = {
   absolutePath: string
   grantId: string
   isDirectory: false
+}
+
+/** A host file outside every workspace that the host serves by its path (today: its chat scratch folder). */
+export type HostPathFile = {
+  kind: 'host-path'
+  absolutePath: string
+  isDirectory: boolean
 }
 
 /** The host answered: it has no file there this client may open. Transport failures stay other errors. */
@@ -80,6 +89,32 @@ async function statClientLocalFile(
   }
 }
 
+/** Null when the host does not serve this path by itself (older host, outside its reach, or absent). */
+async function statHostPathFile(
+  context: RuntimeFileOperationArgs,
+  absolutePath: string
+): Promise<HostPathFile | null> {
+  const address = await resolveRuntimeHostPathAddress(context, absolutePath, userNamedFileAccess())
+  if (!address) {
+    return null
+  }
+  try {
+    const stat = await callRuntimeRpc<{ isDirectory: boolean }>(
+      address.target,
+      'files.stat',
+      address.params,
+      { timeoutMs: 15_000 }
+    )
+    return { kind: 'host-path', absolutePath, isDirectory: stat.isDirectory }
+  } catch (error) {
+    // Why: the host's workspace answer below still decides these, exactly as before.
+    if (isPathOutsideAllowedDirectoriesError(error) || isMissingRuntimePathError(error)) {
+      return null
+    }
+    throw error
+  }
+}
+
 /**
  * A clicked paired-server link outside its own workspace: the server, not this client's catalog
  * copy, says which of its workspaces holds the path, or grants it when the terminal printed it.
@@ -90,7 +125,7 @@ export async function resolveHostWorkspaceFile(
   context: RuntimeFileOperationArgs,
   absolutePath: string,
   terminalHandle?: string | null
-): Promise<HostWorkspaceFile | HostGrantedFile | ClientLocalFile | null> {
+): Promise<HostWorkspaceFile | HostPathFile | HostGrantedFile | ClientLocalFile | null> {
   const environmentId = runtimeTargetEnvironmentId(context.target)
   if (
     !environmentId ||
@@ -113,6 +148,11 @@ export async function resolveHostWorkspaceFile(
   )
   const relativePath = resolved.relativePath
   if (relativePath === null || !resolved.absolutePath) {
+    // Why: a file the host serves by path opens as an ordinary, editable file, ahead of a read-only grant.
+    const hostPathFile = await statHostPathFile(context, absolutePath)
+    if (hostPathFile) {
+      return hostPathFile
+    }
     // Why: hosts grant reads only inside their workspaces; servers without crossWorkspace land here too.
     const refusal = new HostFileRefusal(`${absolutePath} is outside every workspace on its host`)
     const openTarget = resolved.openTarget

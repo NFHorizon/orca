@@ -6,6 +6,7 @@ import {
   editorArtifactContentType,
   editorArtifactSourceKey
 } from './editor-artifact-upload'
+import { fileArtifactSourceKey } from '@/lib/file-artifact-source-key'
 
 const mocks = vi.hoisted(() => ({
   drafts: {} as Record<string, string>,
@@ -70,6 +71,47 @@ describe('Editor artifact upload', () => {
       'ssh',
       'build-box',
       '/repo/notes.md'
+    ])
+  })
+
+  it('keys a host file served by path by its owner and absolute path', () => {
+    const hostFile = (environmentId: string, filePath: string) =>
+      openFile({
+        id: `editor:wt-feat:${environmentId}:${filePath}`,
+        filePath,
+        relativePath: filePath,
+        worktreeId: 'wt-feat',
+        runtimeEnvironmentId: environmentId,
+        operationProvenance: {
+          ownershipProjection: 'explicit',
+          generation: {
+            route: {
+              runtimeEnvironmentId: environmentId,
+              executionHostId: `runtime:${environmentId}`
+            },
+            runtimeConnectionGeneration: 1,
+            runtimePairingRevision: 1,
+            runtimeSshGeneration: null,
+            nestedSshGeneration: null,
+            directSshGeneration: null
+          }
+        }
+      })
+    const path = '/home/me/state/ab12/report.md'
+    const windowsPath = 'C:/Users/me/state/ab12/report.md'
+
+    expect(editorArtifactSourceKey(hostFile('env-a', path))).toBe(
+      fileArtifactSourceKey({ executionHostId: 'runtime:env-a', runtimeEnvironmentId: 'env-a' }, path)
+    )
+    // The same path on another host is another file.
+    expect(editorArtifactSourceKey(hostFile('env-b', path))).not.toBe(
+      editorArtifactSourceKey(hostFile('env-a', path))
+    )
+    expect(JSON.parse(editorArtifactSourceKey(hostFile('env-a', windowsPath)))).toEqual([
+      'editor',
+      'env-a',
+      'runtime:env-a',
+      'C:\\Users\\me\\state\\ab12\\report.md'
     ])
   })
 
