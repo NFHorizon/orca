@@ -9,7 +9,7 @@ import {
   AgentSessionRefusalError,
   agentSessionRefusalError
 } from '../../../shared/agent-session-wire-refusals'
-import { agentSessionLeaseOwnerVerdict } from '../../../shared/agent-session-lease-adjudication'
+import type { AgentSessionLease } from '../../../shared/agent-session-record'
 import type { AgentChildWorkView } from '../../../shared/agent-status-child-work-view'
 import { createJournalOpenReadRefusals } from '../agent-session-journal/journal-open-failure'
 import type { StructuredAgentSessionConversations } from './structured-agent-session-conversations'
@@ -28,6 +28,18 @@ import { AGENT_SESSION_NOT_ATTACHED } from './structured-agent-session-mutation-
 import { deferredStructuredAgentSessionLogger } from './structured-agent-session-logger'
 import { sameProviderChild } from './structured-agent-session-provider-child'
 import type { StructuredAgentSessionExpiredStartup } from './structured-agent-session-startup-attempt'
+
+/** Released with no owner, reservation or handoff, a lease holds nothing, with or without proof
+ *  its last owner exited: recovery released it because nothing can drive that owner, and anything
+ *  it still writes keeps the chat's files recent. */
+function leaseHeld(lease: AgentSessionLease): boolean {
+  return (
+    lease.claimStatus !== 'released' ||
+    lease.ownerProcess !== null ||
+    lease.reservedSpawnToken !== null ||
+    lease.handoffStage !== null
+  )
+}
 
 export type StructuredAgentSessionConversationLifetime = ReturnType<
   typeof createStructuredAgentSessionConversationLifetime
@@ -85,14 +97,14 @@ export function createStructuredAgentSessionConversationLifetime(host: {
   const providerHoldsDispatch = (sessionId: string): boolean =>
     deps().adapter.holdsDispatch?.(sessionId) === true
 
-  /** Execution the host still holds for a chat: a child in any phase, a delivery, a send the
-   *  provider or an orchestration dispatch holds, or an owner not proved exited. Without any of
-   *  these a leftover prompt or turn row is only history. */
+  /** Execution the host still holds, or may hold, for a chat: a child in any phase, a delivery, a
+   *  send the provider or an orchestration dispatch holds, or a lease still held or mid-handoff.
+   *  Without any of these a leftover prompt or turn row is only history. */
   const holdsExecution = (sessionId: string): boolean => {
     const record = deps().store.getRecord(sessionId)
     return (
       !record ||
-      agentSessionLeaseOwnerVerdict(record.lease) !== 'exited' ||
+      leaseHeld(record.lease) ||
       Boolean(sessions.get(sessionId)?.child) ||
       host.deliveryActive(sessionId) ||
       providerHoldsDispatch(sessionId) ||

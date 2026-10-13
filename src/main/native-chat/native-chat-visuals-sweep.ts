@@ -42,7 +42,7 @@ const EXPIRED_SUFFIX = '.expired'
 const EXPIRED_NAME = /^[0-9a-f]{32}\.expired$/
 // Bounds one run's disk work; whatever is left goes in a later run.
 const MAX_REMOVALS_PER_RUN = 200
-// Past this, proving a folder's age costs an unbounded scan, so it counts as recently used.
+// Bounds the entries one folder's age is read from; see `newestEntryTime`.
 const MAX_ENTRIES_PER_FOLDER = 256
 const YIELD_EVERY = 32
 
@@ -167,7 +167,9 @@ async function isUnused(run: SweepRun, folder: string, sessionId: string): Promi
   return lastActivityAt === null || lastActivityAt < run.cutoff
 }
 
-/** The newest mtime among the folder and its entries, none of them followed. */
+/** The newest mtime among the folder and its entries, none of them followed. Past the entry bound
+ *  the folder's own mtime and the entries already read stand in for the rest: adding, removing or
+ *  replacing an entry moves the folder's mtime, and the journal covers a turn that rewrote one. */
 async function newestEntryTime(folder: string): Promise<number> {
   const self = await lstat(folder)
   if (!self.isDirectory()) {
@@ -178,7 +180,7 @@ async function newestEntryTime(folder: string): Promise<number> {
   // Closed by the loop, including on an early return.
   for await (const entry of await opendir(folder)) {
     if (++seen > MAX_ENTRIES_PER_FOLDER) {
-      return Infinity
+      return newest
     }
     try {
       newest = Math.max(newest, (await lstat(join(folder, entry.name))).mtimeMs)

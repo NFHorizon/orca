@@ -211,7 +211,7 @@ describe('the visuals folder sweep', () => {
     expect(existsSync(join(target, 'keep.txt'))).toBe(true)
   })
 
-  it('counts a folder too large to date cheaply as recently used', async () => {
+  it('dates a folder past its entry bound by the folder itself and the journal', async () => {
     const state = stateDirectory()
     const folder = visualsFor(state, 'chat-a', OLD)
     for (let index = 0; index < 300; index += 1) {
@@ -220,6 +220,26 @@ describe('the visuals folder sweep', () => {
       setTime(file, OLD)
     }
     setTime(folder, OLD)
+    const journal: Record<string, number> = { 'chat-a': RECENT }
+    const sweep = deps(state, ['chat-a'], { journal })
+    await sweepNativeChatVisualsFolders(sweep)
+    expect(existsSync(folder)).toBe(true)
+    expect(sweep.lastJournalActivityAt).toHaveBeenCalledWith('chat-a')
+
+    journal['chat-a'] = OLD
+    await expect(sweepNativeChatVisualsFolders(sweep)).resolves.toEqual({ removed: 1, failed: 0 })
+    expect(existsSync(folder)).toBe(false)
+  })
+
+  it('keeps a folder past its entry bound whose own mtime is recent', async () => {
+    const state = stateDirectory()
+    const folder = visualsFor(state, 'chat-a', OLD)
+    for (let index = 0; index < 300; index += 1) {
+      const file = join(folder, `v${index}.html`)
+      writeFileSync(file, '')
+      setTime(file, OLD)
+    }
+    setTime(folder, RECENT)
     const sweep = deps(state, ['chat-a'])
     await sweepNativeChatVisualsFolders(sweep)
     expect(existsSync(folder)).toBe(true)
