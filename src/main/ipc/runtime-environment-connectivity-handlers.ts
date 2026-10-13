@@ -35,6 +35,7 @@ import {
 } from './runtime-environment-transport-routing'
 import { publicRuntimeEnvironmentWithHostKey } from './runtime-environment-host-key'
 import { getWslHostService } from '../wsl/wsl-host-service-instance'
+import { assertWslHostReachable, isGatedOffWslHost } from '../wsl/wsl-host-gate'
 
 function manuallyDisconnectedResponse(
   environment: ReturnType<typeof resolveEnvironment>
@@ -67,7 +68,9 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
     getRuntimeEnvironmentStatusSnapshots()
   )
   ipcMain.handle('runtimeEnvironments:list', () => {
-    const environments = listEnvironments(getUserDataPath())
+    const environments = listEnvironments(getUserDataPath()).filter(
+      (environment) => !isGatedOffWslHost(environment)
+    )
     readSettingsWithRuntimeEnvironmentPreference(store, getUserDataPath())
     return environments.map(publicRuntimeEnvironmentWithHostKey)
   })
@@ -115,6 +118,8 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
           'This server is the default host for new projects. Choose another one in Advanced before removing it.'
         )
       }
+      // A closed gate leaves persisted WSL hosts untouched on disk.
+      assertWslHostReachable(environment)
       const wsl = environment.orcadDeployment?.kind === 'wsl' ? getWslHostService() : null
       if (wsl) {
         // Also releases the distro's holder and drops the WSL record.
@@ -147,6 +152,7 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
       args: { selector: string; timeoutMs?: number }
     ): Promise<RuntimeRpcResponse<RuntimeStatus>> => {
       const environment = resolveEnvironment(getUserDataPath(), args.selector)
+      assertWslHostReachable(environment)
       clearRuntimeEnvironmentManualDisconnect(environment.id)
       if (environment.orcadDeployment?.kind === 'wsl') {
         // An explicit connect may boot the distro.
