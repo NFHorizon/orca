@@ -1,5 +1,5 @@
 [Unit]
-Description=Renew Orca relay IP certificate
+Description=Renew Orca relay private CA certificate
 After=docker.service network-online.target
 Requires=docker.service
 

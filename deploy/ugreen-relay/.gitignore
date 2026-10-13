@@ -3,3 +3,4 @@ letsencrypt/
 certbot-work/
 certbot-logs/
 acme-webroot/
+private-ca/

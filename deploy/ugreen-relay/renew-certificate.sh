@@ -1,10 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")"
-docker run --rm \
-  -v "$PWD/letsencrypt:/etc/letsencrypt" \
-  -v "$PWD/certbot-work:/var/lib/letsencrypt" \
-  -v "$PWD/certbot-logs:/var/log/letsencrypt" \
-  -v "$PWD/acme-webroot:/var/www/acme" \
-  certbot/certbot:v5.4.0 renew --non-interactive --no-random-sleep-on-renew
-docker compose exec -T tls nginx -s reload
+if ! openssl x509 -checkend 2592000 -noout -in letsencrypt/live/36.249.184.200/cert.pem; then
+  ./issue-certificate.sh
+  docker compose exec --interactive=false -T tls nginx -s reload
+fi
